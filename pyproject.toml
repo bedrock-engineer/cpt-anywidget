@@ -1,0 +1,15 @@
+[project]
+name = "cpt-anywidget"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.13"
+dependencies = [
+    "anywidget[dev]>=0.11.0",
+    "brodata>=0.1.8",
+]
+
+[dependency-groups]
+dev = [
+    "marimo>=0.23.13",
+]
