@@ -293,26 +293,36 @@ wheels = [
 
 [[package]]
 name = "cpt-anywidget"
-version = "0.1.0"
-source = { virtual = "." }
+version = "0.2.3"
+source = { editable = "." }
 dependencies = [
-    { name = "anywidget", extra = ["dev"] },
+    { name = "anywidget" },
+]
+
+[package.optional-dependencies]
+bro = [
     { name = "brodata" },
 ]
 
 [package.dev-dependencies]
 dev = [
+    { name = "anywidget", extra = ["dev"] },
+    { name = "brodata" },
     { name = "marimo" },
 ]
 
 [package.metadata]
 requires-dist = [
-    { name = "anywidget", extras = ["dev"], specifier = ">=0.11.0" },
-    { name = "brodata", specifier = ">=0.1.8" },
+    { name = "anywidget", specifier = ">=0.9" },
+    { name = "brodata", marker = "extra == 'bro'", specifier = ">=0.1.8" },
 ]
 
 [package.metadata.requires-dev]
-dev = [{ name = "marimo", specifier = ">=0.23.13" }]
+dev = [
+    { name = "anywidget", extras = ["dev"], specifier = ">=0.11.0" },
+    { name = "brodata", specifier = ">=0.1.8" },
+    { name = "marimo", specifier = ">=0.23.13" },
+]
 
 [[package]]
 name = "cycler"

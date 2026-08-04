@@ -3,7 +3,7 @@ import pathlib
 import anywidget
 import traitlets
 
-from vertical import to_vertical
+from cpt_anywidget.vertical import to_vertical
 
 _HERE = pathlib.Path(__file__).parent
 
@@ -22,7 +22,8 @@ def layers_from_bhrgt(bhrgt, vertical_key="depth"):
 
     Each descriptive-log layer becomes ``{"top", "bottom", "label",
     "bands"}`` with top/bottom in the requested vertical coordinate
-    (``"depth"`` below surface or ``"nap"`` via the borehole's offset).
+    (``"depth"`` below surface, or a positive-up one like ``"nap"``
+    via the borehole's offset).
     Bands are the proportional soil-composition sub-bands from brodata's
     BRO lithology table: ``{"x1", "x2", "color", "hatch"?}`` with x in
     [0, 1] and hatch a matplotlib-style pattern char ("-", "/", "\\\\",
@@ -71,17 +72,20 @@ class BHRGTViewer(anywidget.AnyWidget):
     match CPTViewer so the two can sit side by side on the same axis.
     """
 
-    _esm = _HERE / "bhrgt.js"
+    _esm = _HERE / "static" / "bhrgt-viewer.js"
 
     # [{"top", "bottom", "label", "bands": [{"x1", "x2", "color",
     # "hatch"?}, ...]}, ...] — top/bottom in the current vertical
     # coordinate, bands proportional in x [0, 1]; see layers_from_bhrgt
     layers = traitlets.List().tag(sync=True)
 
-    # vertical coordinate the layers are expressed in: "depth" (below
-    # surface, positive down) or "nap" (elevation, positive up); only
-    # used for the axis label/format — the front end follows layer order
-    verticalKey = traitlets.Unicode("depth").tag(sync=True)
+    # vertical coordinate the layers are expressed in — a key string
+    # ("depth"/"nap" carry display defaults) or a {"key", "label"?,
+    # "up"?, "format"?} dict (see vertical.Vertical); only used for the
+    # axis label/format — the front end follows layer order
+    verticalKey = traitlets.Union(
+        [traitlets.Unicode(), traitlets.Dict()], default_value="depth"
+    ).tag(sync=True)
 
     # {verticalKey: [min, max]} override for the vertical axis; the
     # data-driven fallback spans first layer top to last layer bottom

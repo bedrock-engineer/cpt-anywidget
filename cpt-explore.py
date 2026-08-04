@@ -13,9 +13,7 @@ def _():
     # hot-reload index.js in place when it changes (needs anywidget[dev])
     os.environ["ANYWIDGET_HMR"] = "1"
 
-    from cpt_viewer import CPTViewer
-    from vertical import to_vertical, from_vertical
-    from bhrgt_viewer import layers_from_bhrgt
+    from cpt_anywidget import CPTViewer, to_vertical, from_vertical, layers_from_bhrgt
     from brodata.cpt import ConePenetrationTest
     from brodata.bhr import GeotechnicalBoreholeResearch
 

@@ -5,6 +5,8 @@ import pathlib
 import anywidget
 import traitlets
 
+from cpt_anywidget.vertical import Vertical, resolve_vertical
+
 _HERE = pathlib.Path(__file__).parent
 
 
@@ -32,22 +34,60 @@ class Channel:
 
 
 def _scrub(value):
-    """One JSON-safe sample: numpy scalars unwrapped, NaN → None."""
+    """One JSON-safe sample: numpy scalars unwrapped, numeric strings
+    coerced (BRO XML sometimes delivers them), NaN/±inf → None."""
     if hasattr(value, "item"):  # numpy scalar
         value = value.item()
-    if isinstance(value, float) and math.isnan(value):
+    if isinstance(value, str):
+        value = float(value)
+    if isinstance(value, float) and not math.isfinite(value):
         return None
     return value
 
 
 def _columns(data):
-    """A DataFrame or dict of columns → the cptData dict: plain lists,
-    JSON-safe samples. Both inputs expose ``.items()`` yielding
-    (name, iterable of samples), so no pandas import is needed here.
+    """Tidy columns → the cptData dict: plain lists, JSON-safe samples.
+
+    Accepts a dict of equal-length iterables, a pandas DataFrame (both
+    expose ``.items()``), or a polars DataFrame (via
+    ``to_dict(as_series=False)``) — the notebooks this serves are
+    polars-first, so no dataframe import happens here either way.
+    Ragged columns error immediately: the front end indexes all columns
+    by the vertical sample position, so a length mismatch would silently
+    misalign every channel.
     """
-    return {
-        str(key): [_scrub(v) for v in values] for key, values in data.items()
-    }
+    if not hasattr(data, "items"):  # polars DataFrame
+        data = data.to_dict(as_series=False)
+    columns = {}
+    for key, values in data.items():
+        try:
+            columns[str(key)] = [_scrub(v) for v in values]
+        except (TypeError, ValueError) as e:
+            raise ValueError(
+                f"column {key!r} holds a non-numeric sample: {e}"
+            ) from None
+    lengths = {k: len(v) for k, v in columns.items()}
+    if len(set(lengths.values())) > 1:
+        raise ValueError(f"columns differ in length: {lengths}")
+    return columns
+
+
+def _sorted_columns(columns, key, descending):
+    """Row-sort the columns by the vertical column so the first sample
+    is the topmost — the render-order contract the front end relies on.
+    Samples with a missing vertical value are dropped: they cannot be
+    placed on the axis, and the front end reads the axis domain off the
+    first and last samples.
+    """
+    if key not in columns:
+        raise ValueError(
+            f"vertical column {key!r} not in data "
+            f"(columns: {sorted(columns)})"
+        )
+    vertical = columns[key]
+    order = [i for i, v in enumerate(vertical) if v is not None]
+    order.sort(key=vertical.__getitem__, reverse=descending)
+    return {name: [vals[i] for i in order] for name, vals in columns.items()}
 
 
 class CPTViewer(anywidget.AnyWidget):
@@ -64,7 +104,7 @@ class CPTViewer(anywidget.AnyWidget):
     ``class`` key.
     """
 
-    _esm = _HERE / "index.js"
+    _esm = _HERE / "static" / "cpt-viewer.js"
     _css = _HERE / "index.css"
 
     # {"depth": [...], "nap": [...], "coneResistance": [...], ...} —
@@ -72,9 +112,13 @@ class CPTViewer(anywidget.AnyWidget):
     cptData = traitlets.Dict().tag(sync=True)
 
     # which cptData column is the vertical coordinate: "depth" (below
-    # surface, positive down) or "nap" (elevation, positive up); the front
+    # surface, positive down) and "nap" (elevation, positive up) carry
+    # built-in display defaults; a {"key", "label"?, "up"?, "format"?}
+    # dict (see vertical.Vertical) binds any other column. The front
     # end follows the data order, first sample at the top
-    verticalKey = traitlets.Unicode("depth").tag(sync=True)
+    verticalKey = traitlets.Union(
+        [traitlets.Unicode(), traitlets.Dict()], default_value="depth"
+    ).tag(sync=True)
 
     # per-channel [min, max] axis overrides, e.g. {"coneResistance": [0, 30],
     # "depth": [0, 25]}; the vertical override is keyed by verticalKey;
@@ -85,6 +129,13 @@ class CPTViewer(anywidget.AnyWidget):
     # "position"?: "left"|"center"|"right", "offset"?: [dx, dy]} — "at" is a
     # value in the current vertical coordinate
     annotations = traitlets.List().tag(sync=True)
+
+    # polylines drawn in a channel's x coordinate against the shared
+    # vertical axis, e.g. a fitted hydrostatic pore-pressure line:
+    # [{"channel": cptData key, "points": [[x, v], ...], "color"?, "dash"?,
+    # "width"?}, ...] — x in the channel's unit, v in the current vertical
+    # coordinate; an overlay whose channel is not plotted is skipped
+    overlays = traitlets.List().tag(sync=True)
 
     # read-only interpretation columns stacked right of the plot (no x axis):
     # [{"label": "Robertson", "layers": [{"top", "bottom", "label"?,
@@ -138,29 +189,50 @@ class CPTViewer(anywidget.AnyWidget):
     ):
         """Pythonic facade over the JSON-flat traits.
 
-        ``data`` — tidy columns: a pandas DataFrame or dict of
+        ``data`` — tidy columns: a polars or pandas DataFrame, or dict of
         equal-length lists (one row per depth sample, one column per
-        measurement). NaN and numpy scalars are sanitized here, so
-        callers never hand-build the JSON-safe dict.
+        measurement). Samples are sanitized here (NaN/inf → None, numpy
+        scalars and numeric strings → float) and rows are sorted so the
+        first sample is the topmost — ascending for ``"depth"``,
+        descending for ``"nap"`` — which is the order the front end
+        renders in. Callers never hand-build the JSON-safe dict.
         ``vertical`` — which column is the vertical coordinate
-        (→ ``verticalKey``).
+        (→ ``verticalKey``); must be present in ``data``. A column-name
+        string, :class:`~cpt_anywidget.vertical.Vertical` binding, or
+        raw spec dict — "depth" sorts ascending, "nap" descending, any
+        other datum says which way is up via the binding.
         ``channels`` — mix of column-name strings, :class:`Channel`
         bindings, and raw dicts, in axis stacking order.
         ``limits`` — {column: (min, max)} axis overrides
-        (→ ``axisLimits``).
+        (→ ``axisLimits``); the vertical column's pair is oriented to the
+        render direction, so callers can pass it either way round.
 
         Trait names (``cptData=``, ``annotations=``, …) still pass
         through ``**kwargs`` unchanged — the wire format is the traits;
-        this constructor only normalizes into them.
+        this constructor only normalizes into them. Data passed raw via
+        ``cptData=`` skips all of the above.
         """
+        vert = resolve_vertical(
+            vertical
+            if vertical is not None
+            else type(self).verticalKey.default_value
+        )
+        descending = vert.up  # elevation: highest sample on top
         if data is not None:
-            kwargs["cptData"] = _columns(data)
+            kwargs["cptData"] = _sorted_columns(
+                _columns(data), vert.key, descending
+            )
         if vertical is not None:
-            kwargs["verticalKey"] = vertical
+            kwargs["verticalKey"] = (
+                vertical.spec() if isinstance(vertical, Vertical) else vertical
+            )
         if channels is not None:
             kwargs["channels"] = [
                 c.spec() if isinstance(c, Channel) else c for c in channels
             ]
         if limits is not None:
-            kwargs["axisLimits"] = {k: list(v) for k, v in limits.items()}
+            kwargs["axisLimits"] = {
+                k: sorted(v, reverse=descending) if k == vert.key else list(v)
+                for k, v in limits.items()
+            }
         super().__init__(**kwargs)
