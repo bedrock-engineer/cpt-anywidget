@@ -4355,6 +4355,16 @@ const channelDefaults = {
   frictionRatio: { label: "Rf", unit: "%", color: "#59a14f", side: "top" },
   inclination: { label: "incl", unit: "°", color: "#9c755f", side: "top" }
 };
+function resolveChannel(raw, fallbackColor) {
+  const spec = typeof raw === "string" ? { key: raw } : raw;
+  return {
+    label: spec.key,
+    color: fallbackColor,
+    side: "bottom",
+    ...channelDefaults[spec.key],
+    ...Object.fromEntries(Object.entries(spec).filter(([, v]) => v != null))
+  };
+}
 function makeXScale(values, range2, limits) {
   const finite = (values ?? []).filter((v) => v != null);
   if (!finite.length) {
@@ -4370,17 +4380,15 @@ function buildSeries({
   rangeBottom,
   rangeTop
 }) {
-  const requested = channels.length ? channels : Object.keys(channelDefaults).map((key) => ({ key }));
+  const requested = channels.length ? channels : Object.keys(channelDefaults);
   const series = requested.map((c, i) => {
-    const merged = { side: "bottom", ...channelDefaults[c.key], ...c };
+    const merged = resolveChannel(c, Tableau10[i % 10]);
     return {
       ...merged,
-      label: merged.label ?? c.key,
-      color: merged.color ?? Tableau10[i % 10],
       x: makeXScale(
-        cptData[c.key],
+        cptData[merged.key],
         merged.side === "top" ? rangeTop : rangeBottom,
-        axisLimits[c.key]
+        axisLimits[merged.key]
       )
     };
   }).filter((s) => s.x);
@@ -4739,9 +4747,7 @@ const cptViewer = {
     const vertical = cptData[vert.key] ?? [];
     const axisLimits = model.get("axisLimits") ?? {};
     const annotations = model.get("annotations") ?? [];
-    const channels = (model.get("channels") ?? []).map(
-      (c) => typeof c === "string" ? { key: c } : c
-    );
+    const channels = model.get("channels") ?? [];
     const interpretations = model.get("interpretations") ?? [];
     const borehole = model.get("borehole") ?? {};
     const boreholeLayers = borehole.layers ?? [];

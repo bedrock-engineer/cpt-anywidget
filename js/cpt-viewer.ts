@@ -85,12 +85,10 @@ export default {
     /** horizontal reference lines with labels, e.g. groundwater level */
     const annotations = model.get("annotations") ?? [];
 
-    // which channels to plot, in stacking order — merged over the
-    // built-in defaults, so unknown keys add new plottable channels;
-    // empty = all default channels
-    const channels: ChannelSpec[] = (model.get("channels") ?? []).map((c) =>
-      typeof c === "string" ? { key: c } : c,
-    );
+    // which channels to plot, in stacking order — key strings or specs,
+    // resolved against the built-in defaults in buildSeries so unknown
+    // keys add new plottable channels; empty = all default channels
+    const channels = model.get("channels") ?? [];
 
     // read-only interpretation columns, stacked right of the plot
     const interpretations = model.get("interpretations") ?? [];

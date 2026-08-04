@@ -3794,6 +3794,16 @@ const channelDefaults = {
   frictionRatio: { label: "Rf", unit: "%", color: "#59a14f", side: "top" },
   inclination: { label: "incl", unit: "°", color: "#9c755f", side: "top" }
 };
+function resolveChannel(raw, fallbackColor) {
+  const spec = typeof raw === "string" ? { key: raw } : raw;
+  return {
+    label: spec.key,
+    color: fallbackColor,
+    side: "bottom",
+    ...channelDefaults[spec.key],
+    ...Object.fromEntries(Object.entries(spec).filter(([, v]) => v != null))
+  };
+}
 function makeXScale(values, range, limits) {
   const finite = (values ?? []).filter((v) => v != null);
   if (!finite.length) {
@@ -4078,23 +4088,21 @@ const profileViewer = {
     const axisLimits = model.get("axisLimits") ?? {};
     const annotations = model.get("annotations") ?? [];
     const overlays = model.get("overlays") ?? [];
-    const rawChannel = model.get("channel") || "coneResistance";
-    const spec = typeof rawChannel === "string" ? { key: rawChannel } : rawChannel;
-    const merged = { ...channelDefaults[spec.key], ...spec };
-    const channelKey = spec.key;
-    const channelLabel = merged.label ?? channelKey;
-    const channelColor = merged.color ?? Tableau10[0];
+    const channel = resolveChannel(
+      model.get("channel") || "coneResistance",
+      Tableau10[0]
+    );
     let equal = model.get("equalSpacing") ?? false;
     const stripWidth = model.get("stripWidth") || 90;
     const width = model.get("width") || 700;
     const height = model.get("height") || 500;
     const vertOf = (c) => c.data[vert.key] ?? [];
-    const valuesOf = (c) => c.data[channelKey] ?? [];
+    const valuesOf = (c) => c.data[channel.key] ?? [];
     const allVert = cpts.flatMap(vertOf).filter((v) => v != null);
     const x2 = makeXScale(
       cpts.flatMap(valuesOf),
       [0, stripWidth],
-      axisLimits[channelKey]
+      axisLimits[channel.key]
     );
     if (!cpts.length || !allVert.length || !x2) {
       select(el).append("div").text("no plottable CPT data");
@@ -4168,7 +4176,9 @@ const profileViewer = {
     const gGrid = svg.append("g").call(yGrid, y2);
     const gy = svg.append("g").call(yAxis, y2);
     verticalAxisTitle(svg, vert.label);
-    svg.append("text").attr("x", 0).attr("y", yBottom + 9).attr("dy", "0.71em").attr("text-anchor", "start").attr("font-size", 10).attr("font-weight", "bold").attr("fill", channelColor).text(merged.unit ? `${channelLabel} [${merged.unit}]` : channelLabel);
+    svg.append("text").attr("x", 0).attr("y", yBottom + 9).attr("dy", "0.71em").attr("text-anchor", "start").attr("font-size", 10).attr("font-weight", "bold").attr("fill", channel.color).text(
+      channel.unit ? `${channel.label} [${channel.unit}]` : channel.label
+    );
     const chainY = yBottom + 32;
     const gChain = svg.append("g").attr("transform", `translate(0,${chainY})`);
     const chainageAxis = chainageAxisFor(layout);
@@ -4181,7 +4191,7 @@ const profileViewer = {
     strip.append("g").attr("transform", `translate(0,${yBottom})`).call(
       axisBottom(x2).ticks(Math.max(2, stripWidth / 45)).tickSizeOuter(0)
     );
-    const stripPath = strip.append("g").attr("clip-path", `url(#${stripClipId})`).append("path").attr("fill", "none").attr("stroke", channelColor).attr("stroke-width", 1);
+    const stripPath = strip.append("g").attr("clip-path", `url(#${stripClipId})`).append("path").attr("fill", "none").attr("stroke", channel.color).attr("stroke-width", 1);
     const stripName = strip.append("text").attr("class", "name").attr("x", stripWidth / 2).attr("y", marginTop - 8).attr("text-anchor", "middle").attr("font-size", 11).text((d) => d.name);
     const tracePath = (c, y1) => {
       const values = valuesOf(c);

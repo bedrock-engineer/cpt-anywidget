@@ -20,6 +20,30 @@ export const channelDefaults: Record<string, Omit<ChannelSpec, "key">> = {
   inclination:    { label: "incl", unit: "°",   color: "#9c755f", side: "top" },
 };
 
+/** a fully resolved channel binding: display fields filled in (a
+ * channel without a unit stays unitless) */
+export type ResolvedChannel = Required<Omit<ChannelSpec, "unit">> &
+  Pick<ChannelSpec, "unit">;
+
+// resolve a channel request (a key string or spec) against the display
+// defaults, mirroring resolveVertical: unknown keys label as themselves
+// and explicit fields win. None from a hand-built Python dict arrives
+// as null, so nullish fields are dropped rather than allowed to shadow
+// a default
+export function resolveChannel(
+  raw: string | ChannelSpec,
+  fallbackColor: string,
+): ResolvedChannel {
+  const spec = typeof raw === "string" ? { key: raw } : raw;
+  return {
+    label: spec.key,
+    color: fallbackColor,
+    side: "bottom",
+    ...channelDefaults[spec.key],
+    ...Object.fromEntries(Object.entries(spec).filter(([, v]) => v != null)),
+  } as ResolvedChannel;
+}
+
 // x scale for one channel; explicit limits are honored exactly, the
 // data-driven fallback is niced. null when the channel has no data
 export function makeXScale(
@@ -51,28 +75,24 @@ export function buildSeries({
   rangeBottom,
   rangeTop,
 }: {
-  channels: ChannelSpec[];
+  channels: (string | ChannelSpec)[];
   cptData: CptData;
   axisLimits: AxisLimits;
   rangeBottom: [number, number];
   rangeTop: [number, number];
 }): Series[] {
-  const requested = channels.length
-    ? channels
-    : Object.keys(channelDefaults).map((key) => ({ key }));
+  const requested = channels.length ? channels : Object.keys(channelDefaults);
 
   const series = requested
     .map((c, i) => {
-      const merged = { side: "bottom", ...channelDefaults[c.key], ...c };
+      const merged = resolveChannel(c, d3.schemeTableau10[i % 10]);
 
       return {
         ...merged,
-        label: merged.label ?? c.key,
-        color: merged.color ?? d3.schemeTableau10[i % 10],
         x: makeXScale(
-          cptData[c.key],
+          cptData[merged.key],
           merged.side === "top" ? rangeTop : rangeBottom,
-          axisLimits[c.key],
+          axisLimits[merged.key],
         ),
       };
     })

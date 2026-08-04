@@ -1,6 +1,6 @@
 import type { RenderProps } from "@anywidget/types";
 import * as d3 from "./lib/d3";
-import { channelDefaults, makeXScale } from "./lib/channels";
+import { makeXScale, resolveChannel } from "./lib/channels";
 import { annotationLayer } from "./lib/annotations";
 import { chainageAxisFor } from "./lib/chainage-axis";
 import {
@@ -65,13 +65,10 @@ export default {
     // every strip plots the same single channel (qc by default); the
     // spec/defaults contract matches the interpretation widget's
     // channels entries
-    const rawChannel = model.get("channel") || "coneResistance";
-    const spec =
-      typeof rawChannel === "string" ? { key: rawChannel } : rawChannel;
-    const merged = { ...channelDefaults[spec.key], ...spec };
-    const channelKey = spec.key;
-    const channelLabel = merged.label ?? channelKey;
-    const channelColor = merged.color ?? d3.schemeTableau10[0];
+    const channel = resolveChannel(
+      model.get("channel") || "coneResistance",
+      d3.schemeTableau10[0],
+    );
 
     let equal = model.get("equalSpacing") ?? false;
 
@@ -80,7 +77,7 @@ export default {
     const height = model.get("height") || 500;
 
     const vertOf = (c: ProfileCpt) => c.data[vert.key] ?? [];
-    const valuesOf = (c: ProfileCpt) => c.data[channelKey] ?? [];
+    const valuesOf = (c: ProfileCpt) => c.data[channel.key] ?? [];
 
     const allVert = cpts
       .flatMap(vertOf)
@@ -91,7 +88,7 @@ export default {
     const x = makeXScale(
       cpts.flatMap(valuesOf),
       [0, stripWidth],
-      axisLimits[channelKey],
+      axisLimits[channel.key],
     );
 
     if (!cpts.length || !allVert.length || !x) {
@@ -235,8 +232,10 @@ export default {
       .attr("text-anchor", "start")
       .attr("font-size", 10)
       .attr("font-weight", "bold")
-      .attr("fill", channelColor)
-      .text(merged.unit ? `${channelLabel} [${merged.unit}]` : channelLabel);
+      .attr("fill", channel.color)
+      .text(
+        channel.unit ? `${channel.label} [${channel.unit}]` : channel.label,
+      );
 
     // chainage axis under the strip axes: honest meters in true scale;
     // equal-spaced mode instead ticks each strip anchor with its chainage
@@ -295,7 +294,7 @@ export default {
       .attr("clip-path", `url(#${stripClipId})`)
       .append("path")
       .attr("fill", "none")
-      .attr("stroke", channelColor)
+      .attr("stroke", channel.color)
       .attr("stroke-width", 1);
 
     const stripName = strip
