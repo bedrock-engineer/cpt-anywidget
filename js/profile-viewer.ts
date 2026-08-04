@@ -10,6 +10,7 @@ import {
   yGridFor,
 } from "./lib/frame";
 import { resolveVertical } from "./lib/vertical";
+import { stripLayout } from "./lib/strip-layout";
 import { verticalZoom } from "./lib/zoom";
 import type {
   Annotation,
@@ -143,110 +144,23 @@ export default {
 
     let zy = y; // the currently zoomed vertical scale
 
-    // strip anchors: fx maps chainage to the strip's center x. True scale
-    // is linear in meters, with two escape hatches that keep strips from
-    // ever overlapping: CPTs sharing a chainage (crest + toe soundings at
-    // one dijkpaal) fan out side by side around the shared anchor, and
-    // the svg grows past the requested width (the host div scrolls
-    // sideways) whenever the chainage spread or the strip count needs
-    // the room
+    // the strip anchor geometry: tie-run dodging, svg growth, both
+    // spacing modes' center arrays — see lib/strip-layout
     const n = cpts.length;
     const distances = cpts.map((c) => c.distance);
-    const span = distances[n - 1] - distances[0];
-    const stripGap = 10;
-    const pitch = stripWidth + stripGap;
 
-    // runs of tied chainages; a run's members dodge around its anchor
-    const groups: { dist: number; idx: number[] }[] = [];
-    distances.forEach((d, i) => {
-      const last = groups[groups.length - 1];
-      if (last && last.dist === d) {
-        last.idx.push(i);
-      } else {
-        groups.push({ dist: d, idx: [i] });
-      }
-    });
-    const halfExtent = (g: { idx: number[] }) =>
-      ((g.idx.length - 1) * pitch) / 2;
-
-    // the px-per-m floor that keeps adjacent runs clear of each other
-    let minScale = 0;
-    for (let j = 1; j < groups.length; j += 1) {
-      const need = halfExtent(groups[j - 1]) + halfExtent(groups[j]) + pitch;
-      minScale = Math.max(
-        minScale,
-        need / (groups[j].dist - groups[j - 1].dist),
-      );
-    }
-
-    const endPad =
-      halfExtent(groups[0]) + halfExtent(groups[groups.length - 1]);
-    const chrome = marginLeft + marginRight + stripWidth;
-    const svgWidth = Math.max(
+    const layout = stripLayout({
+      distances,
+      stripWidth,
+      stripGap: 10,
       width,
-      Math.ceil(chrome + endPad + minScale * span),
-      chrome + (n - 1) * pitch,
-    );
+      marginLeft,
+      marginRight,
+    });
+    const { span, groups, svgWidth, innerLeft, innerRight, anchorX } = layout;
 
-    const innerLeft = marginLeft + stripWidth / 2;
-    const innerRight = svgWidth - marginRight - stripWidth / 2;
-    const mid = (innerLeft + innerRight) / 2;
-
-    const anchorX: (d: number) => number =
-      span === 0
-        ? () => mid
-        : d3
-            .scaleLinear()
-            .domain([distances[0], distances[n - 1]])
-            .range([
-              innerLeft + halfExtent(groups[0]),
-              innerRight - halfExtent(groups[groups.length - 1]),
-            ]);
-
-    const trueCenters: number[] = new Array(n);
-    for (const g of groups) {
-      const a = anchorX(g.dist);
-      g.idx.forEach((i, k) => {
-        trueCenters[i] = a + (k - (g.idx.length - 1) / 2) * pitch;
-      });
-    }
-
-    // equal spacing spreads over the requested width like true scale
-    // spreads over the profile, only widening its pitch past that when
-    // the strips wouldn't fit
-    const equalSpan = Math.max(width - chrome, (n - 1) * pitch);
-    const equalCenters =
-      n === 1
-        ? [mid]
-        : distances.map((_, i) => innerLeft + (i * equalSpan) / (n - 1));
-
-    let centers = equal ? equalCenters : trueCenters;
-
-    // chainage → px for the profile-space overlays: linear in true scale,
-    // piecewise-linear between the strip anchors when equal-spaced — an
-    // overlay point between two strips stays between them in both modes.
-    // CPTs can share a chainage (crest + toe soundings at one dijkpaal),
-    // and a piecewise scale chokes on duplicate domain values, so ties
-    // collapse to one domain stop at their centers' mean
-    const distToX = (): ((d: number) => number) => {
-      const domain: number[] = [];
-      const range: number[] = [];
-      for (let j = 0; j < n; ) {
-        let k = j;
-        let sum = 0;
-        while (k < n && distances[k] === distances[j]) {
-          sum += centers[k];
-          k += 1;
-        }
-        domain.push(distances[j]);
-        range.push(sum / (k - j));
-        j = k;
-      }
-      return domain.length >= 2
-        ? d3.scaleLinear().domain(domain).range(range)
-        : () => mid;
-    };
-    let distX = distToX();
+    let centers = equal ? layout.equalCenters : layout.trueCenters;
+    let distX = layout.distToX(centers);
 
     // toolbar above the svg; the toggle round-trips through the trait so
     // Python can flip it too
@@ -598,8 +512,8 @@ export default {
     // re-anchor the strips for the current spacing mode; animated when
     // the toggle flips so the strips visibly slide to their new anchors
     const placeStrips = (animate: boolean) => {
-      centers = equal ? equalCenters : trueCenters;
-      distX = distToX();
+      centers = equal ? layout.equalCenters : layout.trueCenters;
+      distX = layout.distToX(centers);
 
       const transform = (_: ProfileCpt, i: number) =>
         `translate(${centers[i] - stripWidth / 2},0)`;

@@ -3852,6 +3852,84 @@ function resolveVertical(raw, fallbackKey) {
     )
   };
 }
+function stripLayout({
+  distances,
+  stripWidth,
+  stripGap,
+  width,
+  marginLeft,
+  marginRight
+}) {
+  const n = distances.length;
+  const span = distances[n - 1] - distances[0];
+  const pitch = stripWidth + stripGap;
+  const groups = [];
+  distances.forEach((d, i) => {
+    const last = groups[groups.length - 1];
+    if (last && last.dist === d) {
+      last.idx.push(i);
+    } else {
+      groups.push({ dist: d, idx: [i] });
+    }
+  });
+  const halfExtent = (g) => (g.idx.length - 1) * pitch / 2;
+  let minScale = 0;
+  for (let j = 1; j < groups.length; j += 1) {
+    const need = halfExtent(groups[j - 1]) + halfExtent(groups[j]) + pitch;
+    minScale = Math.max(minScale, need / (groups[j].dist - groups[j - 1].dist));
+  }
+  const endPad = halfExtent(groups[0]) + halfExtent(groups[groups.length - 1]);
+  const chrome = marginLeft + marginRight + stripWidth;
+  const svgWidth = Math.max(
+    width,
+    Math.ceil(chrome + endPad + minScale * span),
+    chrome + (n - 1) * pitch
+  );
+  const innerLeft = marginLeft + stripWidth / 2;
+  const innerRight = svgWidth - marginRight - stripWidth / 2;
+  const mid = (innerLeft + innerRight) / 2;
+  const anchorX = span === 0 ? () => mid : linear().domain([distances[0], distances[n - 1]]).range([
+    innerLeft + halfExtent(groups[0]),
+    innerRight - halfExtent(groups[groups.length - 1])
+  ]);
+  const trueCenters = new Array(n);
+  for (const g of groups) {
+    const a = anchorX(g.dist);
+    g.idx.forEach((i, k) => {
+      trueCenters[i] = a + (k - (g.idx.length - 1) / 2) * pitch;
+    });
+  }
+  const equalSpan = Math.max(width - chrome, (n - 1) * pitch);
+  const equalCenters = n === 1 ? [mid] : distances.map((_, i) => innerLeft + i * equalSpan / (n - 1));
+  const distToX = (centers) => {
+    const domain = [];
+    const range = [];
+    for (let j = 0; j < n; ) {
+      let k = j;
+      let sum = 0;
+      while (k < n && distances[k] === distances[j]) {
+        sum += centers[k];
+        k += 1;
+      }
+      domain.push(distances[j]);
+      range.push(sum / (k - j));
+      j = k;
+    }
+    return domain.length >= 2 ? linear().domain(domain).range(range) : () => mid;
+  };
+  return {
+    distances,
+    span,
+    groups,
+    svgWidth,
+    innerLeft,
+    innerRight,
+    anchorX,
+    trueCenters,
+    equalCenters,
+    distToX
+  };
+}
 function verticalZoom(svg, {
   y: y2,
   width,
@@ -3962,68 +4040,17 @@ const profileViewer = {
     let zy = y2;
     const n = cpts.length;
     const distances = cpts.map((c) => c.distance);
-    const span = distances[n - 1] - distances[0];
-    const stripGap = 10;
-    const pitch = stripWidth + stripGap;
-    const groups = [];
-    distances.forEach((d, i) => {
-      const last = groups[groups.length - 1];
-      if (last && last.dist === d) {
-        last.idx.push(i);
-      } else {
-        groups.push({ dist: d, idx: [i] });
-      }
-    });
-    const halfExtent = (g) => (g.idx.length - 1) * pitch / 2;
-    let minScale = 0;
-    for (let j = 1; j < groups.length; j += 1) {
-      const need = halfExtent(groups[j - 1]) + halfExtent(groups[j]) + pitch;
-      minScale = Math.max(
-        minScale,
-        need / (groups[j].dist - groups[j - 1].dist)
-      );
-    }
-    const endPad = halfExtent(groups[0]) + halfExtent(groups[groups.length - 1]);
-    const chrome = marginLeft + marginRight + stripWidth;
-    const svgWidth = Math.max(
+    const layout = stripLayout({
+      distances,
+      stripWidth,
+      stripGap: 10,
       width,
-      Math.ceil(chrome + endPad + minScale * span),
-      chrome + (n - 1) * pitch
-    );
-    const innerLeft = marginLeft + stripWidth / 2;
-    const innerRight = svgWidth - marginRight - stripWidth / 2;
-    const mid = (innerLeft + innerRight) / 2;
-    const anchorX = span === 0 ? () => mid : linear().domain([distances[0], distances[n - 1]]).range([
-      innerLeft + halfExtent(groups[0]),
-      innerRight - halfExtent(groups[groups.length - 1])
-    ]);
-    const trueCenters = new Array(n);
-    for (const g of groups) {
-      const a = anchorX(g.dist);
-      g.idx.forEach((i, k) => {
-        trueCenters[i] = a + (k - (g.idx.length - 1) / 2) * pitch;
-      });
-    }
-    const equalSpan = Math.max(width - chrome, (n - 1) * pitch);
-    const equalCenters = n === 1 ? [mid] : distances.map((_, i) => innerLeft + i * equalSpan / (n - 1));
-    let centers = equal ? equalCenters : trueCenters;
-    const distToX = () => {
-      const domain = [];
-      const range = [];
-      for (let j = 0; j < n; ) {
-        let k = j;
-        let sum = 0;
-        while (k < n && distances[k] === distances[j]) {
-          sum += centers[k];
-          k += 1;
-        }
-        domain.push(distances[j]);
-        range.push(sum / (k - j));
-        j = k;
-      }
-      return domain.length >= 2 ? linear().domain(domain).range(range) : () => mid;
-    };
-    let distX = distToX();
+      marginLeft,
+      marginRight
+    });
+    const { span, groups, svgWidth, innerLeft, innerRight, anchorX } = layout;
+    let centers = equal ? layout.equalCenters : layout.trueCenters;
+    let distX = layout.distToX(centers);
     const toolbar = select(el).append("div").style("font", "12px system-ui, sans-serif").style("margin", "0 0 4px 2px");
     const toggle = toolbar.append("label").style("cursor", "pointer");
     const checkbox = toggle.append("input").attr("type", "checkbox").style("vertical-align", "-2px").property("checked", equal).on("change", (event) => {
@@ -4167,8 +4194,8 @@ const profileViewer = {
     };
     applySelection();
     const placeStrips = (animate) => {
-      centers = equal ? equalCenters : trueCenters;
-      distX = distToX();
+      centers = equal ? layout.equalCenters : layout.trueCenters;
+      distX = layout.distToX(centers);
       const transform = (_, i) => `translate(${centers[i] - stripWidth / 2},0)`;
       if (animate) {
         const t = svg.transition().duration(600);
