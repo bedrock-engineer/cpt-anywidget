@@ -64,6 +64,19 @@ export interface Overlay {
   width?: number;
 }
 
+/** line in profile space: either a polyline through (chainage, vertical)
+    points, or per-strip levels drawn flat across each strip's width
+    (e.g. the surface level) with sloping connectors between strips —
+    absent names bridge across, an explicit null breaks the line */
+export interface ProfileOverlay {
+  points?: [number | null, number | null][];
+  levels?: Record<string, number | null>;
+  label?: string;
+  color?: string;
+  dash?: string;
+  width?: number;
+}
+
 /** soil-class palette entry, the single source of truth for layer colors */
 export interface SoilClass {
   name: string;

@@ -9,6 +9,7 @@ import {
   yAxisFor,
   yGridFor,
 } from "./lib/frame";
+import { profileOverlayLayer } from "./lib/profile-overlays";
 import { resolveVertical } from "./lib/vertical";
 import { stripLayout } from "./lib/strip-layout";
 import { verticalZoom } from "./lib/zoom";
@@ -18,6 +19,7 @@ import type {
   AxisLimits,
   ChannelSpec,
   CptData,
+  ProfileOverlay,
   VerticalScale,
   VerticalSpec,
 } from "./lib/types";
@@ -27,19 +29,6 @@ interface ProfileCpt {
   name: string;
   distance: number;
   data: CptData;
-}
-
-/** line in profile space: either a polyline through (chainage, vertical)
-    points, or per-strip levels drawn flat across each strip's width
-    (e.g. the surface level) with sloping connectors between strips —
-    absent names bridge across, an explicit null breaks the line */
-interface ProfileOverlay {
-  points?: [number | null, number | null][];
-  levels?: Record<string, number | null>;
-  label?: string;
-  color?: string;
-  dash?: string;
-  width?: number;
 }
 
 /** the synced traits — the TS mirror of ProfileViewer's traitlets */
@@ -391,99 +380,19 @@ export default {
     placeTraces(y);
 
     // profile-space overlays (groundwater level, surface line, ...) span
-    // the strips in (chainage, vertical) coordinates
-    const overlayG = svg
-      .append("g")
-      .attr("clip-path", `url(#${clipId})`)
-      .selectAll<SVGGElement, ProfileOverlay>("g")
-      .data(overlays)
-      .join("g");
-
-    const overlayPath = overlayG
-      .append("path")
-      .attr("fill", "none")
-      .attr("stroke", (o) => o.color ?? "currentColor")
-      .attr("stroke-dasharray", (o) => o.dash ?? null)
-      .attr("stroke-width", (o) => o.width ?? 1.5);
-
-    const overlayLabel = overlayG
-      .append("text")
-      .attr("font-size", 11)
-      .attr("fill", (o) => o.color ?? "currentColor")
-      .attr("stroke", "white")
-      .attr("stroke-width", 2)
-      .attr("paint-order", "stroke")
-      .text((o) => o.label ?? "");
-
-    // the overlay's first drawable vertex, anchoring its label
-    const firstVertex = (o: ProfileOverlay): [number, number] | null => {
-      if (o.levels) {
-        const i = cpts.findIndex((c) => o.levels![c.name] != null);
-        return i < 0
-          ? null
-          : [centers[i] - stripWidth / 2, o.levels[cpts[i].name]!];
-      }
-      const p = (o.points ?? []).find((p) => p[0] != null && p[1] != null);
-      return p ? [distX(p[0]!), p[1]!] : null;
-    };
-
-    const overlayLine = (o: ProfileOverlay, y1: VerticalScale) => {
-      // per-strip levels: flat across each strip's width, consecutive
-      // strips joined by a sloping connector. An absent name bridges to
-      // the next strip with a value (e.g. a GWL line skipping non-CPTU
-      // soundings); an explicit null breaks the line
-      if (o.levels) {
-        let d = "";
-        let connected = false;
-        cpts.forEach((c, i) => {
-          const v = o.levels![c.name];
-          if (v == null) {
-            if (v === null) {
-              connected = false;
-            }
-            return;
-          }
-          const left = centers[i] - stripWidth / 2;
-          d += `${connected ? "L" : "M"}${left},${y1(v)}H${left + stripWidth}`;
-          connected = true;
-        });
-        return d || null;
-      }
-
-      return d3
-        .line<[number | null, number | null]>()
-        .defined((p) => p[0] != null && p[1] != null)
-        .x((p) => distX(p[0]!))
-        .y((p) => y1(p[1]!))(o.points ?? []);
-    };
-
-    const labelX = (o: ProfileOverlay) => {
-      const p = firstVertex(o);
-      return p ? p[0] + 4 : 0;
-    };
+    // the strips in (chainage, vertical) coordinates; see
+    // lib/profile-overlays. The thin adapter closes over the live
+    // spacing state so call sites match the other placers
+    const placeProfileOverlays = profileOverlayLayer(svg, overlays, {
+      names: cpts.map((c) => c.name),
+      stripWidth,
+      clipId,
+    });
 
     const placeOverlays = (
       y1: VerticalScale,
-      // any-typed for the same reason as AnySelection: the d3 transition
-      // generics fail variance checks at every seam
       t?: d3.Transition<any, any, any, any>,
-    ) => {
-      const labelY = (o: ProfileOverlay) => {
-        const p = firstVertex(o);
-        return p ? y1(p[1]) - 5 : 0;
-      };
-
-      if (t) {
-        overlayPath.transition(t).attr("d", (o) => overlayLine(o, y1));
-        overlayLabel.transition(t).attr("x", labelX).attr("y", labelY);
-      } else {
-        overlayPath.attr("d", (o) => overlayLine(o, y1));
-        overlayLabel
-          .attr("x", labelX)
-          .attr("y", labelY)
-          .attr("display", (o) => (firstVertex(o) ? null : "none"));
-      }
-    };
+    ) => placeProfileOverlays(y1, { centers, distX }, t);
 
     placeOverlays(y);
 

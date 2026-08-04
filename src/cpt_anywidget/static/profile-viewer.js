@@ -3836,6 +3836,60 @@ function plotClip(svg, prefix, { x: x2, y: y2, width, height }) {
   svg.append("clipPath").attr("id", id2).append("rect").attr("x", x2).attr("y", y2).attr("width", width).attr("height", height);
   return id2;
 }
+function profileOverlayLayer(svg, overlays, {
+  names,
+  stripWidth,
+  clipId
+}) {
+  const overlayG = svg.append("g").attr("clip-path", `url(#${clipId})`).selectAll("g").data(overlays).join("g");
+  const overlayPath = overlayG.append("path").attr("fill", "none").attr("stroke", (o) => o.color ?? "currentColor").attr("stroke-dasharray", (o) => o.dash ?? null).attr("stroke-width", (o) => o.width ?? 1.5);
+  const overlayLabel = overlayG.append("text").attr("font-size", 11).attr("fill", (o) => o.color ?? "currentColor").attr("stroke", "white").attr("stroke-width", 2).attr("paint-order", "stroke").text((o) => o.label ?? "");
+  return (y1, { centers, distX }, t) => {
+    const firstVertex = (o) => {
+      if (o.levels) {
+        const i = names.findIndex((name) => o.levels[name] != null);
+        return i < 0 ? null : [centers[i] - stripWidth / 2, o.levels[names[i]]];
+      }
+      const p = (o.points ?? []).find((p2) => p2[0] != null && p2[1] != null);
+      return p ? [distX(p[0]), p[1]] : null;
+    };
+    const overlayLine = (o) => {
+      if (o.levels) {
+        let d = "";
+        let connected = false;
+        names.forEach((name, i) => {
+          const v = o.levels[name];
+          if (v == null) {
+            if (v === null) {
+              connected = false;
+            }
+            return;
+          }
+          const left2 = centers[i] - stripWidth / 2;
+          d += `${connected ? "L" : "M"}${left2},${y1(v)}H${left2 + stripWidth}`;
+          connected = true;
+        });
+        return d || null;
+      }
+      return line().defined((p) => p[0] != null && p[1] != null).x((p) => distX(p[0])).y((p) => y1(p[1]))(o.points ?? []);
+    };
+    const labelX = (o) => {
+      const p = firstVertex(o);
+      return p ? p[0] + 4 : 0;
+    };
+    const labelY = (o) => {
+      const p = firstVertex(o);
+      return p ? y1(p[1]) - 5 : 0;
+    };
+    if (t) {
+      overlayPath.transition(t).attr("d", overlayLine);
+      overlayLabel.transition(t).attr("x", labelX).attr("y", labelY);
+    } else {
+      overlayPath.attr("d", overlayLine);
+      overlayLabel.attr("x", labelX).attr("y", labelY).attr("display", (o) => firstVertex(o) ? null : "none");
+    }
+  };
+}
 const verticalDefaults = {
   depth: { label: "depth [m]", up: false, format: ".2f" },
   nap: { label: "NAP [m]", up: true, format: "+.2f" }
@@ -4103,13 +4157,13 @@ const profileViewer = {
         return;
       }
       sel.selectAll(".tick,.domain").remove();
-      const labelX2 = (gr) => gr.idx.reduce((s, i) => s + centers[i], 0) / gr.idx.length;
+      const labelX = (gr) => gr.idx.reduce((s, i) => s + centers[i], 0) / gr.idx.length;
       const labels = sel.selectAll("text.chain-label").data(groups);
-      const merged2 = labels.enter().append("text").attr("class", "chain-label").attr("y", 9).attr("dy", "0.71em").attr("text-anchor", "middle").attr("font-size", 10).attr("fill", "currentColor").attr("x", labelX2).text((gr) => formatDistance(gr.dist)).merge(labels);
+      const merged2 = labels.enter().append("text").attr("class", "chain-label").attr("y", 9).attr("dy", "0.71em").attr("text-anchor", "middle").attr("font-size", 10).attr("fill", "currentColor").attr("x", labelX).text((gr) => formatDistance(gr.dist)).merge(labels);
       if (gOrT !== sel) {
-        merged2.transition(gOrT).attr("x", labelX2);
+        merged2.transition(gOrT).attr("x", labelX);
       } else {
-        merged2.attr("x", labelX2);
+        merged2.attr("x", labelX);
       }
       labels.exit().remove();
     };
@@ -4131,54 +4185,12 @@ const profileViewer = {
     };
     const placeTraces = (y1) => stripPath.attr("d", (d) => tracePath(d, y1));
     placeTraces(y2);
-    const overlayG = svg.append("g").attr("clip-path", `url(#${clipId})`).selectAll("g").data(overlays).join("g");
-    const overlayPath = overlayG.append("path").attr("fill", "none").attr("stroke", (o) => o.color ?? "currentColor").attr("stroke-dasharray", (o) => o.dash ?? null).attr("stroke-width", (o) => o.width ?? 1.5);
-    const overlayLabel = overlayG.append("text").attr("font-size", 11).attr("fill", (o) => o.color ?? "currentColor").attr("stroke", "white").attr("stroke-width", 2).attr("paint-order", "stroke").text((o) => o.label ?? "");
-    const firstVertex = (o) => {
-      if (o.levels) {
-        const i = cpts.findIndex((c) => o.levels[c.name] != null);
-        return i < 0 ? null : [centers[i] - stripWidth / 2, o.levels[cpts[i].name]];
-      }
-      const p = (o.points ?? []).find((p2) => p2[0] != null && p2[1] != null);
-      return p ? [distX(p[0]), p[1]] : null;
-    };
-    const overlayLine = (o, y1) => {
-      if (o.levels) {
-        let d = "";
-        let connected = false;
-        cpts.forEach((c, i) => {
-          const v = o.levels[c.name];
-          if (v == null) {
-            if (v === null) {
-              connected = false;
-            }
-            return;
-          }
-          const left2 = centers[i] - stripWidth / 2;
-          d += `${connected ? "L" : "M"}${left2},${y1(v)}H${left2 + stripWidth}`;
-          connected = true;
-        });
-        return d || null;
-      }
-      return line().defined((p) => p[0] != null && p[1] != null).x((p) => distX(p[0])).y((p) => y1(p[1]))(o.points ?? []);
-    };
-    const labelX = (o) => {
-      const p = firstVertex(o);
-      return p ? p[0] + 4 : 0;
-    };
-    const placeOverlays = (y1, t) => {
-      const labelY = (o) => {
-        const p = firstVertex(o);
-        return p ? y1(p[1]) - 5 : 0;
-      };
-      if (t) {
-        overlayPath.transition(t).attr("d", (o) => overlayLine(o, y1));
-        overlayLabel.transition(t).attr("x", labelX).attr("y", labelY);
-      } else {
-        overlayPath.attr("d", (o) => overlayLine(o, y1));
-        overlayLabel.attr("x", labelX).attr("y", labelY).attr("display", (o) => firstVertex(o) ? null : "none");
-      }
-    };
+    const placeProfileOverlays = profileOverlayLayer(svg, overlays, {
+      names: cpts.map((c) => c.name),
+      stripWidth,
+      clipId
+    });
+    const placeOverlays = (y1, t) => placeProfileOverlays(y1, { centers, distX }, t);
     placeOverlays(y2);
     const placeAnnotations = annotationLayer(svg, annotations, {
       clipId,
