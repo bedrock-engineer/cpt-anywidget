@@ -1,7 +1,7 @@
 {
   "name": "cpt-anywidget",
   "private": true,
-  "version": "0.2.4",
+  "version": "0.2.5",
   "type": "module",
   "scripts": {
     "dev": "ENTRY=js/cpt-viewer.ts vite build --watch",

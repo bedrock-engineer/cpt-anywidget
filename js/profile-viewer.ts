@@ -2,6 +2,7 @@ import type { RenderProps } from "@anywidget/types";
 import * as d3 from "./lib/d3";
 import { channelDefaults, makeXScale } from "./lib/channels";
 import { annotationLayer } from "./lib/annotations";
+import { chainageAxisFor } from "./lib/chainage-axis";
 import {
   makeVerticalScale,
   plotClip,
@@ -15,7 +16,6 @@ import { stripLayout } from "./lib/strip-layout";
 import { verticalZoom } from "./lib/zoom";
 import type {
   Annotation,
-  AnySelection,
   AxisLimits,
   ChannelSpec,
   CptData,
@@ -146,7 +146,7 @@ export default {
       marginLeft,
       marginRight,
     });
-    const { span, groups, svgWidth, innerLeft, innerRight, anchorX } = layout;
+    const { svgWidth } = layout;
 
     let centers = equal ? layout.equalCenters : layout.trueCenters;
     let distX = layout.distToX(centers);
@@ -245,68 +245,11 @@ export default {
       .append("g")
       .attr("transform", `translate(0,${chainY})`);
 
-    const formatDistance = d3.format(",.0f");
+    // dual-mode: honest meter axis in true scale, per-dijkpaal labels
+    // when equal-spaced; see lib/chainage-axis
+    const chainageAxis = chainageAxisFor(layout);
 
-    // accepts a selection or a transition (the toggle animates the true-
-    // scale ticks). True scale draws an honest linear meter axis; when
-    // the anchors don't carry distance (equal spacing, or a profile of
-    // one tied chainage) the line and ticks would lie about proportion,
-    // so it degrades to plain labels — one chainage per tied run,
-    // centered under the run, so crest + toe pairs read as one dijkpaal
-    const chainageAxis = (gOrT: any) => {
-      if (n < 2) {
-        return;
-      }
-      // Transition.selection() unwraps; Selection.selection() is identity
-      const sel: AnySelection<SVGGElement> = gOrT.selection();
-
-      if (!equal && span > 0) {
-        sel.selectAll("text.chain-label").remove();
-        gOrT.call(
-          d3
-            .axisBottom(
-              d3
-                .scaleLinear()
-                .domain([distances[0], distances[n - 1]])
-                .range([anchorX(distances[0]), anchorX(distances[n - 1])]),
-            )
-            .ticks((innerRight - innerLeft) / 90)
-            .tickFormat((d: d3.NumberValue) => formatDistance(+d))
-            .tickSizeOuter(0) as any,
-        );
-        return;
-      }
-
-      sel.selectAll(".tick,.domain").remove();
-
-      const labelX = (gr: { idx: number[] }) =>
-        gr.idx.reduce((s, i) => s + centers[i], 0) / gr.idx.length;
-
-      const labels = sel
-        .selectAll<SVGTextElement, (typeof groups)[number]>("text.chain-label")
-        .data(groups);
-      // entering labels place directly; only updates ride the transition
-      const merged = labels
-        .enter()
-        .append("text")
-        .attr("class", "chain-label")
-        .attr("y", 9)
-        .attr("dy", "0.71em")
-        .attr("text-anchor", "middle")
-        .attr("font-size", 10)
-        .attr("fill", "currentColor")
-        .attr("x", labelX)
-        .text((gr) => formatDistance(gr.dist))
-        .merge(labels);
-      if (gOrT !== sel) {
-        merged.transition(gOrT).attr("x", labelX);
-      } else {
-        merged.attr("x", labelX);
-      }
-      labels.exit().remove();
-    };
-
-    gChain.call(chainageAxis);
+    gChain.call(chainageAxis, { equal, centers });
 
     if (n >= 2) {
       svg
@@ -432,11 +375,11 @@ export default {
           .transition()
           .duration(600);
         strip.transition(t).attr("transform", transform);
-        gChain.transition(t).call(chainageAxis as any);
+        gChain.transition(t).call(chainageAxis as any, { equal, centers });
         placeOverlays(zy, t);
       } else {
         strip.attr("transform", transform);
-        gChain.call(chainageAxis);
+        gChain.call(chainageAxis, { equal, centers });
         placeOverlays(zy);
       }
     };

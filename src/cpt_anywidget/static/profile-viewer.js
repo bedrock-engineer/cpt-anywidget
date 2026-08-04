@@ -3819,6 +3819,36 @@ function annotationLayer(svg, annotations, {
   annotation.append("text").attr("x", (d) => labelX[d.position ?? "right"] + (d.offset?.[0] ?? 0)).attr("y", (d) => -4 + (d.offset?.[1] ?? 0)).attr("text-anchor", (d) => labelAnchor[d.position ?? "right"]).attr("font-size", 11).attr("fill", (d) => d.color ?? "currentColor").attr("stroke", "white").attr("stroke-width", 2).attr("paint-order", "stroke").text((d) => d.label ?? "");
   return (y1) => annotation.attr("transform", (d) => `translate(0,${y1(d.at)})`);
 }
+function chainageAxisFor(layout) {
+  const { distances, span, groups, anchorX, innerLeft, innerRight } = layout;
+  const n = distances.length;
+  const formatDistance = format(",.0f");
+  return (gOrT, { equal, centers }) => {
+    if (n < 2) {
+      return;
+    }
+    const sel = gOrT.selection();
+    if (!equal && span > 0) {
+      sel.selectAll("text.chain-label").remove();
+      gOrT.call(
+        axisBottom(
+          linear().domain([distances[0], distances[n - 1]]).range([anchorX(distances[0]), anchorX(distances[n - 1])])
+        ).ticks((innerRight - innerLeft) / 90).tickFormat((d) => formatDistance(+d)).tickSizeOuter(0)
+      );
+      return;
+    }
+    sel.selectAll(".tick,.domain").remove();
+    const labelX = (gr) => gr.idx.reduce((s, i) => s + centers[i], 0) / gr.idx.length;
+    const labels = sel.selectAll("text.chain-label").data(groups);
+    const merged = labels.enter().append("text").attr("class", "chain-label").attr("y", 9).attr("dy", "0.71em").attr("text-anchor", "middle").attr("font-size", 10).attr("fill", "currentColor").attr("x", labelX).text((gr) => formatDistance(gr.dist)).merge(labels);
+    if (gOrT !== sel) {
+      merged.transition(gOrT).attr("x", labelX);
+    } else {
+      merged.attr("x", labelX);
+    }
+    labels.exit().remove();
+  };
+}
 function makeVerticalScale(fallback, range, limits) {
   const y2 = linear().domain(limits ?? fallback).range(range);
   if (!limits) {
@@ -4102,7 +4132,7 @@ const profileViewer = {
       marginLeft,
       marginRight
     });
-    const { span, groups, svgWidth, innerLeft, innerRight, anchorX } = layout;
+    const { svgWidth } = layout;
     let centers = equal ? layout.equalCenters : layout.trueCenters;
     let distX = layout.distToX(centers);
     const toolbar = select(el).append("div").style("font", "12px system-ui, sans-serif").style("margin", "0 0 4px 2px");
@@ -4141,33 +4171,8 @@ const profileViewer = {
     svg.append("text").attr("x", 0).attr("y", yBottom + 9).attr("dy", "0.71em").attr("text-anchor", "start").attr("font-size", 10).attr("font-weight", "bold").attr("fill", channelColor).text(merged.unit ? `${channelLabel} [${merged.unit}]` : channelLabel);
     const chainY = yBottom + 32;
     const gChain = svg.append("g").attr("transform", `translate(0,${chainY})`);
-    const formatDistance = format(",.0f");
-    const chainageAxis = (gOrT) => {
-      if (n < 2) {
-        return;
-      }
-      const sel = gOrT.selection();
-      if (!equal && span > 0) {
-        sel.selectAll("text.chain-label").remove();
-        gOrT.call(
-          axisBottom(
-            linear().domain([distances[0], distances[n - 1]]).range([anchorX(distances[0]), anchorX(distances[n - 1])])
-          ).ticks((innerRight - innerLeft) / 90).tickFormat((d) => formatDistance(+d)).tickSizeOuter(0)
-        );
-        return;
-      }
-      sel.selectAll(".tick,.domain").remove();
-      const labelX = (gr) => gr.idx.reduce((s, i) => s + centers[i], 0) / gr.idx.length;
-      const labels = sel.selectAll("text.chain-label").data(groups);
-      const merged2 = labels.enter().append("text").attr("class", "chain-label").attr("y", 9).attr("dy", "0.71em").attr("text-anchor", "middle").attr("font-size", 10).attr("fill", "currentColor").attr("x", labelX).text((gr) => formatDistance(gr.dist)).merge(labels);
-      if (gOrT !== sel) {
-        merged2.transition(gOrT).attr("x", labelX);
-      } else {
-        merged2.attr("x", labelX);
-      }
-      labels.exit().remove();
-    };
-    gChain.call(chainageAxis);
+    const chainageAxis = chainageAxisFor(layout);
+    gChain.call(chainageAxis, { equal, centers });
     if (n >= 2) {
       svg.append("text").attr("x", 0).attr("y", chainY + 9).attr("dy", "0.71em").attr("text-anchor", "start").attr("font-size", 10).attr("font-weight", "bold").attr("fill", "currentColor").text("distance [m]");
     }
@@ -4212,11 +4217,11 @@ const profileViewer = {
       if (animate) {
         const t = svg.transition().duration(600);
         strip.transition(t).attr("transform", transform);
-        gChain.transition(t).call(chainageAxis);
+        gChain.transition(t).call(chainageAxis, { equal, centers });
         placeOverlays(zy, t);
       } else {
         strip.attr("transform", transform);
-        gChain.call(chainageAxis);
+        gChain.call(chainageAxis, { equal, centers });
         placeOverlays(zy);
       }
     };
