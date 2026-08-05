@@ -10,6 +10,13 @@ export type LayerColumn = (
   layers: Layer[] | ((d: any) => Layer[]),
 ) => void;
 
+interface LayerRenderer {
+  columnWidth: number;
+  classColor: (name: string) => string;
+  classLabel: Map<string, string>;
+  hatchId: Map<string, string>;
+}
+
 // a layer column: rects + centered labels on the shared vertical scale,
 // no x axis — used by the interpretation columns and the edit column.
 // The factory binds the display config; the returned layerColumn works
@@ -22,12 +29,7 @@ export function layerRenderer({
   classColor,
   classLabel,
   hatchId,
-}: {
-  columnWidth: number;
-  classColor: (name: string) => string;
-  classLabel: Map<string, string>;
-  hatchId: Map<string, string>;
-}): LayerColumn {
+}: LayerRenderer): LayerColumn {
   const labelMargin = 14; // space for depth labels on boundary lines
 
   // soil-composition bands: proportional x in [0, 1] across the fill
@@ -38,8 +40,14 @@ export function layerRenderer({
 
   const bandX = (rect: AnySelection<SVGRectElement>) =>
     rect
-      .attr("x", (b: PlacedBand) => labelMargin + b.x1 * (columnWidth - labelMargin))
-      .attr("width", (b: PlacedBand) => (b.x2 - b.x1) * (columnWidth - labelMargin));
+      .attr(
+        "x",
+        (b: PlacedBand) => labelMargin + b.x1 * (columnWidth - labelMargin),
+      )
+      .attr(
+        "width",
+        (b: PlacedBand) => (b.x2 - b.x1) * (columnWidth - labelMargin),
+      );
 
   return (parent, layers) => {
     const layerGroup = parent

@@ -115,8 +115,6 @@ export interface Series {
   side: "bottom" | "top";
   x: ScaleLinear<number, number>;
   values: Samples;
-  /** the rendered path, attached by the widget entry */
-  path?: Selection<SVGPathElement, unknown, null, undefined>;
 }
 
 /** the vertical scale, possibly rescaled by the current zoom */

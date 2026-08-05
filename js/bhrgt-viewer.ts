@@ -1,15 +1,13 @@
 import type { RenderProps } from "@anywidget/types";
-import * as d3 from "./lib/d3";
-import { hatchDefs } from "./lib/hatch";
 import { annotationLayer } from "./lib/annotations";
+import * as d3 from "./lib/d3";
 import {
   makeVerticalScale,
   plotClip,
   verticalAxisTitle,
   yAxisFor,
 } from "./lib/frame";
-import { resolveVertical } from "./lib/vertical";
-import { verticalZoom } from "./lib/zoom";
+import { hatchDefs } from "./lib/hatch";
 import type {
   Annotation,
   AxisLimits,
@@ -17,6 +15,8 @@ import type {
   Layer,
   VerticalSpec,
 } from "./lib/types";
+import { resolveVertical } from "./lib/vertical";
+import { verticalZoom } from "./lib/zoom";
 
 /** the synced traits — the TS mirror of BHRGTViewer's traitlets */
 interface BhrgtModel {

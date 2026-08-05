@@ -4443,16 +4443,22 @@ function annotationLayer(svg, annotations, {
   marginRight,
   width
 }) {
-  const labelX = {
-    left: marginLeft + 6,
-    center: (marginLeft + width - marginRight) / 2,
-    right: width - marginRight - 6
-  };
+  const currentWidth = typeof width === "function" ? width : () => width;
   const labelAnchor = { left: "start", center: "middle", right: "end" };
   const annotation = svg.append("g").attr("clip-path", `url(#${clipId})`).selectAll("g").data(annotations).join("g");
-  annotation.append("line").attr("x1", marginLeft).attr("x2", width - marginRight).attr("stroke", (d) => d.color ?? "currentColor").attr("stroke-dasharray", (d) => d.dash ?? "4 3");
-  annotation.append("text").attr("x", (d) => labelX[d.position ?? "right"] + (d.offset?.[0] ?? 0)).attr("y", (d) => -4 + (d.offset?.[1] ?? 0)).attr("text-anchor", (d) => labelAnchor[d.position ?? "right"]).attr("font-size", 11).attr("fill", (d) => d.color ?? "currentColor").attr("stroke", "white").attr("stroke-width", 2).attr("paint-order", "stroke").text((d) => d.label ?? "");
-  return (y1) => annotation.attr("transform", (d) => `translate(0,${y1(d.at)})`);
+  const line2 = annotation.append("line").attr("x1", marginLeft).attr("stroke", (d) => d.color ?? "currentColor").attr("stroke-dasharray", (d) => d.dash ?? "4 3");
+  const label = annotation.append("text").attr("y", (d) => -4 + (d.offset?.[1] ?? 0)).attr("text-anchor", (d) => labelAnchor[d.position ?? "right"]).attr("font-size", 11).attr("fill", (d) => d.color ?? "currentColor").attr("stroke", "white").attr("stroke-width", 2).attr("paint-order", "stroke").text((d) => d.label ?? "");
+  return (y1) => {
+    const w = currentWidth();
+    const labelX = {
+      left: marginLeft + 6,
+      center: (marginLeft + w - marginRight) / 2,
+      right: w - marginRight - 6
+    };
+    line2.attr("x2", w - marginRight);
+    label.attr("x", (d) => labelX[d.position ?? "right"] + (d.offset?.[0] ?? 0));
+    annotation.attr("transform", (d) => `translate(0,${y1(d.at)})`);
+  };
 }
 function overlayLayer(svg, overlays, { seriesByKey, clipId }) {
   const overlayPath = (o, y1) => {
@@ -4540,7 +4546,8 @@ function verticalZoom(svg, {
   marginRight,
   marginTop,
   marginBottom,
-  onZoom
+  onZoom,
+  wheelRequiresModifier = false
 }) {
   let zy = y2;
   const brush2 = brushY().keyModifiers(false).filter((event) => event.shiftKey).extent([
@@ -4567,9 +4574,18 @@ function verticalZoom(svg, {
     zy = transform.rescaleY(y2);
     onZoom(zy);
   }
-  const zoom$1 = zoom().scaleExtent([1, 16]).filter(
-    (event) => !event.button && (event.type === "wheel" || !event.shiftKey)
-  ).extent([
+  const zoom$1 = zoom().scaleExtent([1, 16]).filter((event) => {
+    if (event.button) {
+      return false;
+    }
+    if (event.type === "wheel") {
+      if (wheelRequiresModifier) {
+        return event.ctrlKey || event.metaKey;
+      }
+      return true;
+    }
+    return !event.shiftKey;
+  }).extent([
     [marginLeft, marginTop],
     // top-left
     [width - marginRight, height - marginBottom]
@@ -4733,9 +4749,33 @@ function editableColumn({
   updateEditColumn();
   return placeHandles;
 }
+function layoutColumns(columns, width, column) {
+  const slotWidth = column.width + column.gap;
+  const columnX = (i) => width + column.gap + i * slotWidth;
+  let slot = 0;
+  let leftSlot = 0;
+  for (const c of columns) {
+    if (c.side === "left") {
+      leftSlot += 1;
+      c.x = -leftSlot * slotWidth;
+    } else {
+      if (c.gapBefore) {
+        slot += 1;
+      }
+      c.x = columnX(slot);
+      slot += 1;
+    }
+  }
+  const totalWidth = width + slot * slotWidth;
+  const x0 = leftSlot ? -leftSlot * slotWidth - column.gap : 0;
+  return { totalWidth, x0 };
+}
 const cptViewer = {
   /** @param context the model shared by every view of this widget */
-  initialize({ model, signal }) {
+  initialize({
+    model,
+    signal
+  }) {
   },
   render({
     model,
@@ -4766,9 +4806,7 @@ const cptViewer = {
     const height = model.get("height") || 800;
     const marginLeft = 50;
     const marginRight = 50;
-    const columnWidth = 72;
-    const columnGap = 8;
-    const columnX = (i) => width + columnGap + i * (columnWidth + columnGap);
+    const column = { width: 72, gap: 8 };
     const columns = [
       ...boreholeLayers.length ? [
         {
@@ -4792,22 +4830,7 @@ const cptViewer = {
         }
       ] : []
     ];
-    let slot = 0;
-    let leftSlot = 0;
-    for (const c of columns) {
-      if (c.side === "left") {
-        leftSlot += 1;
-        c.x = -leftSlot * (columnWidth + columnGap);
-      } else {
-        if (c.gapBefore) {
-          slot += 1;
-        }
-        c.x = columnX(slot);
-        slot += 1;
-      }
-    }
-    const totalWidth = width + slot * (columnWidth + columnGap);
-    const x0 = leftSlot ? -leftSlot * (columnWidth + columnGap) - columnGap : 0;
+    const { totalWidth, x0 } = layoutColumns(columns, width, column);
     const series = buildSeries({
       channels,
       cptData,
@@ -4873,11 +4896,11 @@ const cptViewer = {
       width
     });
     placeAnnotations(y2);
-    const columnHeader = (column2, label) => column2.append("text").attr("x", columnWidth / 2).attr("y", marginTop - 8).attr("text-anchor", "middle").attr("font-size", 12).attr("font-weight", "bold").attr("fill", "currentColor").text(label);
+    const columnHeader = (g, label) => g.append("text").attr("x", column.width / 2).attr("y", marginTop - 8).attr("text-anchor", "middle").attr("font-size", 12).attr("font-weight", "bold").attr("fill", "currentColor").text(label);
     const columnClipId = plotClip(svg, "column-clip", {
-      x: -columnGap,
+      x: -8,
       y: marginTop,
-      width: columnWidth + columnGap,
+      width: column.width + column.gap,
       height: height - marginTop - marginBottom
     });
     const usedHatches = [
@@ -4889,13 +4912,13 @@ const cptViewer = {
     ].filter(Boolean);
     const hatchId = hatchDefs(svg, usedHatches);
     const layerColumn = layerRenderer({
-      columnWidth,
+      columnWidth: column.width,
       classColor,
       classLabel,
       hatchId
     });
-    const column = svg.selectAll(null).data(columns).join("g").attr("transform", (d) => `translate(${d.x},0)`).call(columnHeader, (d) => d.label);
-    const columnBody = column.append("g").attr("clip-path", `url(#${columnClipId})`);
+    const gColumn = svg.selectAll(null).data(columns).join("g").attr("transform", (d) => `translate(${d.x},0)`).call(columnHeader, (d) => d.label);
+    const columnBody = gColumn.append("g").attr("clip-path", `url(#${columnClipId})`);
     const columnLayers = columnBody.append("g").call(layerColumn, (d) => d.layers);
     const columnPlacers = [
       (y1) => placeLayerColumn(columnLayers, y1)
@@ -4912,7 +4935,7 @@ const cptViewer = {
         editedLayers,
         soilClasses,
         classLabel,
-        columnWidth,
+        columnWidth: column.width,
         layerColumn,
         currentY: () => zy
       });

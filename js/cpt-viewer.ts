@@ -30,6 +30,7 @@ import type {
   SoilClass,
   VerticalSpec,
 } from "./lib/types";
+import { layoutColumns } from "./lib/layout-columns";
 
 /** the synced traits — the TS mirror of CPTViewer's traitlets */
 interface CptModel {
@@ -48,7 +49,7 @@ interface CptModel {
 }
 
 /** one layer column in the slot layout left/right of the plot */
-interface ColumnSpec {
+export interface ColumnSpec {
   label: string;
   layers: Layer[];
   side?: "left";
@@ -57,9 +58,21 @@ interface ColumnSpec {
   x?: number;
 }
 
+/** column slot geometry: the fixed slot width and the gap between slots */
+export interface ColumnGeometry {
+  width: number;
+  gap: number;
+}
+
 export default {
   /** @param context the model shared by every view of this widget */
-  initialize({ model, signal }: { model: AnyModel<CptModel>; signal: AbortSignal }) {
+  initialize({
+    model,
+    signal,
+  }: {
+    model: AnyModel<CptModel>;
+    signal: AbortSignal;
+  }) {
     // Set up shared state, event handlers, or programmatic exports.
     // Use `signal` (AbortSignal) for cleanup when the widget is destroyed.
   },
@@ -105,12 +118,12 @@ export default {
     // differently across widget instances; unknown covers classless layers
     const soilClasses = model.get("soil_classes") ?? [];
 
-    const classColor = d3
+    const classColor: (name: string) => string = d3
       .scaleOrdinal(
         soilClasses.map((c) => c.name),
         soilClasses.map((c) => c.color),
       )
-      .unknown("#ccc") as (name: string) => string;
+      .unknown("#ccc");
 
     const classLabel = new Map(
       soilClasses.map((c) => [c.name, c.label ?? c.name]),
@@ -127,15 +140,19 @@ export default {
     const width = model.get("width") || 400;
     const height = model.get("height") || 800;
 
-    const marginLeft = 50;
-    const marginRight = 50;
+    // should this be configurable too?
+    const margin = {
+      left: 50,
+      right: 50,
+      top: 24,
+      bottom: 10,
+    };
+    const marginLeft = margin.left;
+    const marginRight = margin.right;
 
     // layer columns (interpretations + edit column) extend the svg beyond
     // the plot width
-    const columnWidth = 72;
-    const columnGap = 8;
-    const columnX = (i: number) =>
-      width + columnGap + i * (columnWidth + columnGap);
+    const column: ColumnGeometry = { width: 72, gap: 8 };
 
     // one descriptor per layer column: the borehole sits left of the plot,
     // read-only interpretation columns right of it, then the editable
@@ -169,30 +186,7 @@ export default {
         : []),
     ];
 
-    // slot layout: left-side columns stack outward at negative x, the rest
-    // to the right of the plot; a column with gapBefore leaves one slot
-    // empty before it
-    let slot = 0;
-    let leftSlot = 0;
-    for (const c of columns) {
-      if (c.side === "left") {
-        leftSlot += 1;
-        c.x = -leftSlot * (columnWidth + columnGap);
-      } else {
-        if (c.gapBefore) {
-          slot += 1;
-        }
-        c.x = columnX(slot);
-        slot += 1;
-      }
-    }
-
-    const totalWidth = width + slot * (columnWidth + columnGap);
-
-    // left columns extend the viewBox into negative x instead of shifting
-    // the plot: every plot coordinate stays put; the extra columnGap keeps
-    // the boundary-depth labels (which reach left of the column) visible
-    const x0 = leftSlot ? -leftSlot * (columnWidth + columnGap) - columnGap : 0;
+    const { totalWidth, x0 } = layoutColumns(columns, width, column);
 
     // bottom cpt axes read left-to-right, top axes right-to-left (mirrored),
     // so the two dominant curves (qc and Rf) sit back-to-back
@@ -208,8 +202,8 @@ export default {
     const axisSlot = 30;
     const bottomSeries = series.filter((s) => s.side === "bottom");
     const topSeries = series.filter((s) => s.side === "top");
-    const marginTop = 24 + axisSlot * topSeries.length;
-    const marginBottom = 10 + axisSlot * bottomSeries.length;
+    const marginTop = margin.top + axisSlot * topSeries.length;
+    const marginBottom = margin.bottom + axisSlot * bottomSeries.length;
 
     const y = makeVerticalScale(
       [vertical[0]!, vertical[vertical.length - 1]!],
@@ -298,15 +292,16 @@ export default {
 
     verticalAxisTitle(svg, vert.label);
 
-    for (const s of series) {
-      s.path = svg
-        .append("path")
-        .attr("clip-path", `url(#${clipId})`)
-        .attr("d", lineFor(s, vertical, y))
-        .attr("fill", "none")
-        .attr("stroke", s.color)
-        .attr("stroke-width", 1);
-    }
+    const seriesPaths = svg
+      .append("g")
+      .selectAll<SVGPathElement, Series>("path")
+      .data(series, (s) => s.key)
+      .join("path")
+      .attr("clip-path", `url(#${clipId})`)
+      .attr("fill", "none")
+      .attr("stroke", (s) => s.color)
+      .attr("stroke-width", 1)
+      .attr("d", (s) => lineFor(s, vertical, y));
 
     const seriesByKey = new Map(series.map((s) => [s.key, s]));
 
@@ -329,12 +324,12 @@ export default {
     // headers sit above the clip region so they don't scroll with zoom;
     // appended to the column group, so x is column-local
     const columnHeader = (
-      column: AnySelection<SVGGElement>,
+      g: AnySelection<SVGGElement>,
       label: (d: ColumnSpec) => string,
     ) =>
-      column
+      g
         .append("text")
-        .attr("x", columnWidth / 2)
+        .attr("x", column.width / 2)
         .attr("y", marginTop - 8)
         .attr("text-anchor", "middle")
         .attr("font-size", 12)
@@ -346,9 +341,9 @@ export default {
     // group's horizontal translate, so one clipPath serves every column;
     // it reaches into the gap so boundary depth labels aren't cut off
     const columnClipId = plotClip(svg, "column-clip", {
-      x: -columnGap,
+      x: -column.gap,
       y: marginTop,
-      width: columnWidth + columnGap,
+      width: column.width + column.gap,
       height: height - marginTop - marginBottom,
     });
 
@@ -364,7 +359,7 @@ export default {
     const hatchId = hatchDefs(svg, usedHatches);
 
     const layerColumn = layerRenderer({
-      columnWidth,
+      columnWidth: column.width,
       classColor,
       classLabel,
       hatchId,
@@ -373,14 +368,14 @@ export default {
     // one group per column, translated to its slot: the header first,
     // then a clipped body holding the layers. The editable column is just
     // another datum here — its extra machinery hangs off the same nodes
-    const column = svg
+    const gColumn = svg
       .selectAll<SVGGElement, ColumnSpec>(null as unknown as string)
       .data(columns)
       .join("g")
       .attr("transform", (d) => `translate(${d.x},0)`)
       .call(columnHeader, (d: ColumnSpec) => d.label);
 
-    const columnBody = column
+    const columnBody = gColumn
       .append("g")
       .attr("clip-path", `url(#${columnClipId})`);
 
@@ -412,7 +407,7 @@ export default {
         editedLayers,
         soilClasses,
         classLabel,
-        columnWidth,
+        columnWidth: column.width,
         layerColumn,
         currentY: () => zy,
       });
@@ -420,8 +415,9 @@ export default {
       columnPlacers.push(placeHandles);
     }
 
-    const placeColumns = (y1: d3.ScaleLinear<number, number>) =>
+    const placeColumns = (y1: d3.ScaleLinear<number, number>) => {
       columnPlacers.forEach((place) => place(y1));
+    };
 
     placeColumns(y);
 
@@ -449,9 +445,7 @@ export default {
         gy.call(yAxis, zy);
         gGrid.call(yGrid, zy);
 
-        for (const s of series) {
-          s.path!.attr("d", lineFor(s, vertical, zy));
-        }
+        seriesPaths.attr("d", (s) => lineFor(s, vertical, zy));
 
         placeOverlays(zy);
         placeAnnotations(zy);

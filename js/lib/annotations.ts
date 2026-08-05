@@ -12,14 +12,16 @@ export function annotationLayer(
     marginLeft,
     marginRight,
     width,
-  }: { clipId: string; marginLeft: number; marginRight: number; width: number },
+  }: {
+    clipId: string;
+    marginLeft: number;
+    marginRight: number;
+    /** a getter keeps the lines and labels tracking a host that
+        resizes (the profile's spacing toggle changes the svg width) */
+    width: number | (() => number);
+  },
 ): Placer {
-  // named label slots along the line; offset fine-tunes in pixels
-  const labelX = {
-    left: marginLeft + 6,
-    center: (marginLeft + width - marginRight) / 2,
-    right: width - marginRight - 6,
-  };
+  const currentWidth = typeof width === "function" ? width : () => width;
 
   const labelAnchor = { left: "start", center: "middle", right: "end" };
 
@@ -30,16 +32,14 @@ export function annotationLayer(
     .data(annotations)
     .join("g");
 
-  annotation
+  const line = annotation
     .append("line")
     .attr("x1", marginLeft)
-    .attr("x2", width - marginRight)
     .attr("stroke", (d) => d.color ?? "currentColor")
     .attr("stroke-dasharray", (d) => d.dash ?? "4 3");
 
-  annotation
+  const label = annotation
     .append("text")
-    .attr("x", (d) => labelX[d.position ?? "right"] + (d.offset?.[0] ?? 0))
     .attr("y", (d) => -4 + (d.offset?.[1] ?? 0))
     .attr("text-anchor", (d) => labelAnchor[d.position ?? "right"])
     .attr("font-size", 11)
@@ -49,5 +49,18 @@ export function annotationLayer(
     .attr("paint-order", "stroke")
     .text((d) => d.label ?? "");
 
-  return (y1) => annotation.attr("transform", (d) => `translate(0,${y1(d.at)})`);
+  // the width-dependent attrs are re-applied on every placement, so
+  // re-placing after a resize is enough to catch the lines up
+  return (y1) => {
+    const w = currentWidth();
+    // named label slots along the line; offset fine-tunes in pixels
+    const labelX = {
+      left: marginLeft + 6,
+      center: (marginLeft + w - marginRight) / 2,
+      right: w - marginRight - 6,
+    };
+    line.attr("x2", w - marginRight);
+    label.attr("x", (d) => labelX[d.position ?? "right"] + (d.offset?.[0] ?? 0));
+    annotation.attr("transform", (d) => `translate(0,${y1(d.at)})`);
+  };
 }

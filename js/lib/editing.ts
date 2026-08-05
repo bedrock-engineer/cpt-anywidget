@@ -9,6 +9,23 @@ import type {
   VerticalScale,
 } from "./types";
 
+interface EditableColumn {
+  model: {
+    set(key: "editedLayers", value: Layer[]): void;
+    save_changes(): void;
+  };
+  el: HTMLElement;
+  signal: AbortSignal;
+  layersG: AnySelection<SVGGElement>;
+  handlesG: AnySelection<SVGGElement>;
+  editedLayers: Layer[];
+  soilClasses: SoilClass[];
+  classLabel: Map<string, string>;
+  columnWidth: number;
+  layerColumn: LayerColumn;
+  currentY: () => VerticalScale;
+}
+
 // the manually editable layer column: drag a boundary to move it,
 // double-click a layer to split it there, option-click a boundary to
 // merge (the upper layer wins), click a layer to pick its class from
@@ -28,22 +45,7 @@ export function editableColumn({
   columnWidth,
   layerColumn,
   currentY,
-}: {
-  model: {
-    set(key: "editedLayers", value: Layer[]): void;
-    save_changes(): void;
-  };
-  el: HTMLElement;
-  signal: AbortSignal;
-  layersG: AnySelection<SVGGElement>;
-  handlesG: AnySelection<SVGGElement>;
-  editedLayers: Layer[];
-  soilClasses: SoilClass[];
-  classLabel: Map<string, string>;
-  columnWidth: number;
-  layerColumn: LayerColumn;
-  currentY: () => VerticalScale;
-}): Placer {
+}: EditableColumn): Placer {
   // in vertical-coordinate units (m); keeps a layer from collapsing
   const minThickness = 0.05;
 

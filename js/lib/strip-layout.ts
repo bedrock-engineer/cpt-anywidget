@@ -1,14 +1,5 @@
 import * as d3 from "./d3";
 
-// strip anchor geometry for the profile viewer — pure numbers in, numbers
-// out, no DOM. anchorX maps chainage to the strip's center x. True scale
-// is linear in meters, with two escape hatches that keep strips from
-// ever overlapping: CPTs sharing a chainage (crest + toe soundings at
-// one dijkpaal) fan out side by side around the shared anchor, and
-// the svg grows past the requested width (the host div scrolls
-// sideways) whenever the chainage spread or the strip count needs
-// the room
-
 export interface StripLayout {
   /** the sorted input chainages, echoed for downstream consumers */
   distances: number[];
@@ -18,6 +9,10 @@ export interface StripLayout {
   groups: { dist: number; idx: number[] }[];
   /** grows past the requested width when the strips need the room */
   svgWidth: number;
+  /** the svg width when equal-spaced: the requested width unless the
+      strip count alone needs more. Narrower than svgWidth whenever the
+      chainage spread forced true scale to grow */
+  equalSvgWidth: number;
   /** x of the leftmost/rightmost possible strip center */
   innerLeft: number;
   innerRight: number;
@@ -31,14 +26,7 @@ export interface StripLayout {
   distToX(centers: number[]): (d: number) => number;
 }
 
-export function stripLayout({
-  distances,
-  stripWidth,
-  stripGap,
-  width,
-  marginLeft,
-  marginRight,
-}: {
+interface StripLayoutProps {
   /** chainages in strip order, sorted ascending, ties allowed */
   distances: number[];
   stripWidth: number;
@@ -47,7 +35,16 @@ export function stripLayout({
   width: number;
   marginLeft: number;
   marginRight: number;
-}): StripLayout {
+}
+
+export function stripLayout({
+  distances,
+  stripWidth,
+  stripGap,
+  width,
+  marginLeft,
+  marginRight,
+}: StripLayoutProps): StripLayout {
   const n = distances.length;
   const span = distances[n - 1] - distances[0];
   const pitch = stripWidth + stripGap;
@@ -95,8 +92,10 @@ export function stripLayout({
           ]);
 
   const trueCenters: number[] = new Array(n);
+
   for (const g of groups) {
     const a = anchorX(g.dist);
+
     g.idx.forEach((i, k) => {
       trueCenters[i] = a + (k - (g.idx.length - 1) / 2) * pitch;
     });
@@ -106,6 +105,7 @@ export function stripLayout({
   // spreads over the profile, only widening its pitch past that when
   // the strips wouldn't fit
   const equalSpan = Math.max(width - chrome, (n - 1) * pitch);
+  const equalSvgWidth = chrome + equalSpan;
   const equalCenters =
     n === 1
       ? [mid]
@@ -137,6 +137,7 @@ export function stripLayout({
     span,
     groups,
     svgWidth,
+    equalSvgWidth,
     innerLeft,
     innerRight,
     anchorX,

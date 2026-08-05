@@ -3818,16 +3818,22 @@ function annotationLayer(svg, annotations, {
   marginRight,
   width
 }) {
-  const labelX = {
-    left: marginLeft + 6,
-    center: (marginLeft + width - marginRight) / 2,
-    right: width - marginRight - 6
-  };
+  const currentWidth = typeof width === "function" ? width : () => width;
   const labelAnchor = { left: "start", center: "middle", right: "end" };
   const annotation = svg.append("g").attr("clip-path", `url(#${clipId})`).selectAll("g").data(annotations).join("g");
-  annotation.append("line").attr("x1", marginLeft).attr("x2", width - marginRight).attr("stroke", (d) => d.color ?? "currentColor").attr("stroke-dasharray", (d) => d.dash ?? "4 3");
-  annotation.append("text").attr("x", (d) => labelX[d.position ?? "right"] + (d.offset?.[0] ?? 0)).attr("y", (d) => -4 + (d.offset?.[1] ?? 0)).attr("text-anchor", (d) => labelAnchor[d.position ?? "right"]).attr("font-size", 11).attr("fill", (d) => d.color ?? "currentColor").attr("stroke", "white").attr("stroke-width", 2).attr("paint-order", "stroke").text((d) => d.label ?? "");
-  return (y1) => annotation.attr("transform", (d) => `translate(0,${y1(d.at)})`);
+  const line2 = annotation.append("line").attr("x1", marginLeft).attr("stroke", (d) => d.color ?? "currentColor").attr("stroke-dasharray", (d) => d.dash ?? "4 3");
+  const label = annotation.append("text").attr("y", (d) => -4 + (d.offset?.[1] ?? 0)).attr("text-anchor", (d) => labelAnchor[d.position ?? "right"]).attr("font-size", 11).attr("fill", (d) => d.color ?? "currentColor").attr("stroke", "white").attr("stroke-width", 2).attr("paint-order", "stroke").text((d) => d.label ?? "");
+  return (y1) => {
+    const w = currentWidth();
+    const labelX = {
+      left: marginLeft + 6,
+      center: (marginLeft + w - marginRight) / 2,
+      right: w - marginRight - 6
+    };
+    line2.attr("x2", w - marginRight);
+    label.attr("x", (d) => labelX[d.position ?? "right"] + (d.offset?.[0] ?? 0));
+    annotation.attr("transform", (d) => `translate(0,${y1(d.at)})`);
+  };
 }
 function chainageAxisFor(layout) {
   const { distances, span, groups, anchorX, innerLeft, innerRight } = layout;
@@ -3994,6 +4000,7 @@ function stripLayout({
     });
   }
   const equalSpan = Math.max(width - chrome, (n - 1) * pitch);
+  const equalSvgWidth = chrome + equalSpan;
   const equalCenters = n === 1 ? [mid] : distances.map((_, i) => innerLeft + i * equalSpan / (n - 1));
   const distToX = (centers) => {
     const domain = [];
@@ -4016,6 +4023,7 @@ function stripLayout({
     span,
     groups,
     svgWidth,
+    equalSvgWidth,
     innerLeft,
     innerRight,
     anchorX,
@@ -4032,7 +4040,8 @@ function verticalZoom(svg, {
   marginRight,
   marginTop,
   marginBottom,
-  onZoom
+  onZoom,
+  wheelRequiresModifier = false
 }) {
   let zy = y2;
   const brush2 = brushY().keyModifiers(false).filter((event) => event.shiftKey).extent([
@@ -4059,9 +4068,18 @@ function verticalZoom(svg, {
     zy = transform.rescaleY(y2);
     onZoom(zy);
   }
-  const zoom$1 = zoom().scaleExtent([1, 16]).filter(
-    (event) => !event.button && (event.type === "wheel" || !event.shiftKey)
-  ).extent([
+  const zoom$1 = zoom().scaleExtent([1, 16]).filter((event) => {
+    if (event.button) {
+      return false;
+    }
+    if (event.type === "wheel") {
+      if (wheelRequiresModifier) {
+        return event.ctrlKey || event.metaKey;
+      }
+      return true;
+    }
+    return !event.shiftKey;
+  }).extent([
     [marginLeft, marginTop],
     // top-left
     [width - marginRight, height - marginBottom]
@@ -4140,9 +4158,10 @@ const profileViewer = {
       marginLeft,
       marginRight
     });
-    const { svgWidth } = layout;
+    const { svgWidth, equalSvgWidth } = layout;
     let centers = equal ? layout.equalCenters : layout.trueCenters;
     let distX = layout.distToX(centers);
+    let curWidth = equal ? equalSvgWidth : svgWidth;
     const toolbar = select(el).append("div").style("font", "12px system-ui, sans-serif").style("margin", "0 0 4px 2px");
     const toggle = toolbar.append("label").style("cursor", "pointer");
     const checkbox = toggle.append("input").attr("type", "checkbox").style("vertical-align", "-2px").property("checked", equal).on("change", (event) => {
@@ -4154,11 +4173,11 @@ const profileViewer = {
     });
     toggle.append("span").text(" equal spacing");
     const scroller = select(el).append("div").style("max-width", "100%").style("overflow-x", "auto");
-    const svg = scroller.append("svg").attr("viewBox", [0, 0, svgWidth, height].join(",")).attr("width", svgWidth).attr("height", height).style("display", "block").style("user-select", "none").style("-webkit-user-select", "none");
+    const svg = scroller.append("svg").attr("viewBox", [0, 0, curWidth, height].join(",")).attr("width", curWidth).attr("height", height).style("display", "block").style("user-select", "none").style("-webkit-user-select", "none");
     const clipId = plotClip(svg, "profile-clip", {
       x: marginLeft,
       y: marginTop,
-      width: svgWidth - marginLeft - marginRight,
+      width: curWidth - marginLeft - marginRight,
       height: yBottom - marginTop
     });
     const stripClipId = plotClip(svg, "strip-clip", {
@@ -4168,9 +4187,9 @@ const profileViewer = {
       height: yBottom - marginTop
     });
     const yAxis = yAxisFor(marginLeft, height);
-    const yGrid = yGridFor({
+    let yGrid = yGridFor({
       x1: marginLeft,
-      x2: svgWidth - marginRight,
+      x2: curWidth - marginRight,
       height
     });
     const gGrid = svg.append("g").call(yGrid, y2);
@@ -4211,7 +4230,7 @@ const profileViewer = {
       clipId,
       marginLeft,
       marginRight,
-      width: svgWidth
+      width: () => curWidth
     });
     placeAnnotations(y2);
     const applySelection = () => {
@@ -4223,21 +4242,37 @@ const profileViewer = {
     const placeStrips = (animate) => {
       centers = equal ? layout.equalCenters : layout.trueCenters;
       distX = layout.distToX(centers);
+      curWidth = equal ? equalSvgWidth : svgWidth;
+      yGrid = yGridFor({
+        x1: marginLeft,
+        x2: curWidth - marginRight,
+        height
+      });
+      svg.select(`#${clipId} rect`).attr("width", curWidth - marginLeft - marginRight);
+      svg.select("line.crosshair-rule").attr("x2", curWidth - marginRight);
       const transform = (_, i) => `translate(${centers[i] - stripWidth / 2},0)`;
       if (animate) {
         const t = svg.transition().duration(600);
+        t.attr("width", curWidth).attr(
+          "viewBox",
+          [0, 0, curWidth, height].join(",")
+        );
         strip.transition(t).attr("transform", transform);
+        gGrid.selectAll("line").transition(t).attr("x2", curWidth - marginRight);
         gChain.transition(t).call(chainageAxis, { equal, centers });
         placeOverlays(zy, t);
       } else {
+        svg.attr("width", curWidth).attr("viewBox", [0, 0, curWidth, height].join(","));
         strip.attr("transform", transform);
+        gGrid.call(yGrid, zy);
         gChain.call(chainageAxis, { equal, centers });
         placeOverlays(zy);
       }
+      placeAnnotations(zy);
     };
     placeStrips(false);
     const focus = svg.append("g").attr("display", "none").attr("pointer-events", "none");
-    focus.append("line").attr("x1", marginLeft).attr("x2", svgWidth - marginRight).attr("stroke", "currentColor").attr("stroke-opacity", 0.3);
+    focus.append("line").attr("class", "crosshair-rule").attr("x1", marginLeft).attr("x2", curWidth - marginRight).attr("stroke", "currentColor").attr("stroke-opacity", 0.3);
     const readout = focus.append("text").attr("x", marginLeft - 8).attr("dy", "0.32em").attr("text-anchor", "end").attr("font-size", 12).attr("font-weight", "bold").attr("fill", "currentColor").attr("stroke", "white").attr("stroke-width", 4).attr("paint-order", "stroke");
     const formatVertical = format(vert.format);
     const stripIndexAt = (px) => {
@@ -4246,7 +4281,7 @@ const profileViewer = {
     };
     svg.on("pointerenter pointermove", (event) => {
       const [px, py] = pointer(event);
-      const inPlot = py >= marginTop && py <= yBottom && px >= marginLeft && px <= svgWidth - marginRight;
+      const inPlot = py >= marginTop && py <= yBottom && px >= marginLeft && px <= curWidth - marginRight;
       svg.style(
         "cursor",
         () => inPlot && stripIndexAt(px) != null ? "pointer" : null
@@ -4283,6 +4318,9 @@ const profileViewer = {
       marginRight,
       marginTop,
       marginBottom,
+      // the profile scrolls sideways in its host; a plain trackpad
+      // side-scroll carries deltaY jitter that would nudge the zoom
+      wheelRequiresModifier: true,
       onZoom: (zy1) => {
         zy = zy1;
         gy.call(yAxis, zy);

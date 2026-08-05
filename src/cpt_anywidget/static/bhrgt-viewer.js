@@ -1,3 +1,26 @@
+function annotationLayer(svg, annotations, {
+  clipId,
+  marginLeft,
+  marginRight,
+  width
+}) {
+  const currentWidth = typeof width === "function" ? width : () => width;
+  const labelAnchor = { left: "start", center: "middle", right: "end" };
+  const annotation = svg.append("g").attr("clip-path", `url(#${clipId})`).selectAll("g").data(annotations).join("g");
+  const line = annotation.append("line").attr("x1", marginLeft).attr("stroke", (d) => d.color ?? "currentColor").attr("stroke-dasharray", (d) => d.dash ?? "4 3");
+  const label = annotation.append("text").attr("y", (d) => -4 + (d.offset?.[1] ?? 0)).attr("text-anchor", (d) => labelAnchor[d.position ?? "right"]).attr("font-size", 11).attr("fill", (d) => d.color ?? "currentColor").attr("stroke", "white").attr("stroke-width", 2).attr("paint-order", "stroke").text((d) => d.label ?? "");
+  return (y1) => {
+    const w = currentWidth();
+    const labelX = {
+      left: marginLeft + 6,
+      center: (marginLeft + w - marginRight) / 2,
+      right: w - marginRight - 6
+    };
+    line.attr("x2", w - marginRight);
+    label.attr("x", (d) => labelX[d.position ?? "right"] + (d.offset?.[0] ?? 0));
+    annotation.attr("transform", (d) => `translate(0,${y1(d.at)})`);
+  };
+}
 function ascending$1(a, b) {
   return a == null || b == null ? NaN : a < b ? -1 : a > b ? 1 : a >= b ? 0 : NaN;
 }
@@ -3572,38 +3595,6 @@ function zoom() {
   };
   return zoom2;
 }
-const HATCH_STROKE = `stroke="rgba(0,0,0,0.32)" stroke-width="0.8"`;
-const HATCH_SHAPE = {
-  "-": `<path d="M0,3 L6,3" ${HATCH_STROKE}/>`,
-  "/": `<path d="M0,6 L6,0" ${HATCH_STROKE}/>`,
-  "\\": `<path d="M0,0 L6,6" ${HATCH_STROKE}/>`,
-  "|": `<path d="M3,0 L3,6" ${HATCH_STROKE}/>`,
-  ".": `<circle cx="3" cy="3" r="0.9" fill="rgba(0,0,0,0.32)"/>`,
-  o: `<circle cx="3" cy="3" r="1.4" fill="none" stroke="rgba(0,0,0,0.32)" stroke-width="0.7"/>`
-};
-function hatchDefs(svg, chars) {
-  const uid = crypto.randomUUID();
-  const ids = new Map(chars.map((h, i) => [h, `hatch-${uid}-${i}`]));
-  svg.append("defs").selectAll("pattern").data(chars).join("pattern").attr("id", (h) => ids.get(h)).attr("width", 6).attr("height", 6).attr("patternUnits", "userSpaceOnUse").html((h) => HATCH_SHAPE[h]);
-  return ids;
-}
-function annotationLayer(svg, annotations, {
-  clipId,
-  marginLeft,
-  marginRight,
-  width
-}) {
-  const labelX = {
-    left: marginLeft + 6,
-    center: (marginLeft + width - marginRight) / 2,
-    right: width - marginRight - 6
-  };
-  const labelAnchor = { left: "start", center: "middle", right: "end" };
-  const annotation = svg.append("g").attr("clip-path", `url(#${clipId})`).selectAll("g").data(annotations).join("g");
-  annotation.append("line").attr("x1", marginLeft).attr("x2", width - marginRight).attr("stroke", (d) => d.color ?? "currentColor").attr("stroke-dasharray", (d) => d.dash ?? "4 3");
-  annotation.append("text").attr("x", (d) => labelX[d.position ?? "right"] + (d.offset?.[0] ?? 0)).attr("y", (d) => -4 + (d.offset?.[1] ?? 0)).attr("text-anchor", (d) => labelAnchor[d.position ?? "right"]).attr("font-size", 11).attr("fill", (d) => d.color ?? "currentColor").attr("stroke", "white").attr("stroke-width", 2).attr("paint-order", "stroke").text((d) => d.label ?? "");
-  return (y1) => annotation.attr("transform", (d) => `translate(0,${y1(d.at)})`);
-}
 function makeVerticalScale(fallback, range, limits) {
   const y = linear().domain(limits ?? fallback).range(range);
   if (!limits) {
@@ -3619,6 +3610,21 @@ function plotClip(svg, prefix, { x, y, width, height }) {
   const id2 = `${prefix}-${crypto.randomUUID()}`;
   svg.append("clipPath").attr("id", id2).append("rect").attr("x", x).attr("y", y).attr("width", width).attr("height", height);
   return id2;
+}
+const HATCH_STROKE = `stroke="rgba(0,0,0,0.32)" stroke-width="0.8"`;
+const HATCH_SHAPE = {
+  "-": `<path d="M0,3 L6,3" ${HATCH_STROKE}/>`,
+  "/": `<path d="M0,6 L6,0" ${HATCH_STROKE}/>`,
+  "\\": `<path d="M0,0 L6,6" ${HATCH_STROKE}/>`,
+  "|": `<path d="M3,0 L3,6" ${HATCH_STROKE}/>`,
+  ".": `<circle cx="3" cy="3" r="0.9" fill="rgba(0,0,0,0.32)"/>`,
+  o: `<circle cx="3" cy="3" r="1.4" fill="none" stroke="rgba(0,0,0,0.32)" stroke-width="0.7"/>`
+};
+function hatchDefs(svg, chars) {
+  const uid = crypto.randomUUID();
+  const ids = new Map(chars.map((h, i) => [h, `hatch-${uid}-${i}`]));
+  svg.append("defs").selectAll("pattern").data(chars).join("pattern").attr("id", (h) => ids.get(h)).attr("width", 6).attr("height", 6).attr("patternUnits", "userSpaceOnUse").html((h) => HATCH_SHAPE[h]);
+  return ids;
 }
 const verticalDefaults = {
   depth: { label: "depth [m]", up: false, format: ".2f" },
@@ -3644,7 +3650,8 @@ function verticalZoom(svg, {
   marginRight,
   marginTop,
   marginBottom,
-  onZoom
+  onZoom,
+  wheelRequiresModifier = false
 }) {
   let zy = y;
   const brush2 = brushY().keyModifiers(false).filter((event) => event.shiftKey).extent([
@@ -3671,9 +3678,18 @@ function verticalZoom(svg, {
     zy = transform.rescaleY(y);
     onZoom(zy);
   }
-  const zoom$1 = zoom().scaleExtent([1, 16]).filter(
-    (event) => !event.button && (event.type === "wheel" || !event.shiftKey)
-  ).extent([
+  const zoom$1 = zoom().scaleExtent([1, 16]).filter((event) => {
+    if (event.button) {
+      return false;
+    }
+    if (event.type === "wheel") {
+      if (wheelRequiresModifier) {
+        return event.ctrlKey || event.metaKey;
+      }
+      return true;
+    }
+    return !event.shiftKey;
+  }).extent([
     [marginLeft, marginTop],
     // top-left
     [width - marginRight, height - marginBottom]

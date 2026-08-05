@@ -143,10 +143,14 @@ export default {
       marginLeft,
       marginRight,
     });
-    const { svgWidth } = layout;
+    const { svgWidth, equalSvgWidth } = layout;
 
     let centers = equal ? layout.equalCenters : layout.trueCenters;
     let distX = layout.distToX(centers);
+    // the svg is narrower when equal-spaced: equal spacing packs into
+    // the requested width, so keeping the true-scale width would leave
+    // a long empty gridline tail to scroll through
+    let curWidth = equal ? equalSvgWidth : svgWidth;
 
     // toolbar above the svg; the toggle round-trips through the trait so
     // Python can flip it too
@@ -183,8 +187,8 @@ export default {
 
     const svg = scroller
       .append("svg")
-      .attr("viewBox", [0, 0, svgWidth, height].join(","))
-      .attr("width", svgWidth)
+      .attr("viewBox", [0, 0, curWidth, height].join(","))
+      .attr("width", curWidth)
       .attr("height", height)
       .style("display", "block")
       // user-select suppresses text selection during drags/brushes;
@@ -194,7 +198,7 @@ export default {
     const clipId = plotClip(svg, "profile-clip", {
       x: marginLeft,
       y: marginTop,
-      width: svgWidth - marginLeft - marginRight,
+      width: curWidth - marginLeft - marginRight,
       height: yBottom - marginTop,
     });
 
@@ -209,10 +213,12 @@ export default {
 
     const yAxis = yAxisFor(marginLeft, height);
 
-    // one background grid across the whole profile — the strips share it
-    const yGrid = yGridFor({
+    // one background grid across the whole profile — the strips share
+    // it. Rebuilt on the spacing toggle since its right edge tracks the
+    // svg width
+    let yGrid = yGridFor({
       x1: marginLeft,
-      x2: svgWidth - marginRight,
+      x2: curWidth - marginRight,
       height,
     });
 
@@ -342,7 +348,7 @@ export default {
       clipId,
       marginLeft,
       marginRight,
-      width: svgWidth,
+      width: () => curWidth,
     });
 
     placeAnnotations(y);
@@ -361,10 +367,23 @@ export default {
     applySelection();
 
     // re-anchor the strips for the current spacing mode; animated when
-    // the toggle flips so the strips visibly slide to their new anchors
+    // the toggle flips so the strips visibly slide to their new anchors.
+    // The svg width rides along: equal spacing packs into the requested
+    // width, true scale gets the room the chainages need
     const placeStrips = (animate: boolean) => {
       centers = equal ? layout.equalCenters : layout.trueCenters;
       distX = layout.distToX(centers);
+      curWidth = equal ? equalSvgWidth : svgWidth;
+
+      yGrid = yGridFor({
+        x1: marginLeft,
+        x2: curWidth - marginRight,
+        height,
+      });
+      svg
+        .select(`#${clipId} rect`)
+        .attr("width", curWidth - marginLeft - marginRight);
+      svg.select("line.crosshair-rule").attr("x2", curWidth - marginRight);
 
       const transform = (_: ProfileCpt, i: number) =>
         `translate(${centers[i] - stripWidth / 2},0)`;
@@ -373,14 +392,27 @@ export default {
         const t: d3.Transition<any, any, any, any> = svg
           .transition()
           .duration(600);
+        t.attr("width", curWidth).attr(
+          "viewBox",
+          [0, 0, curWidth, height].join(","),
+        );
         strip.transition(t).attr("transform", transform);
+        gGrid
+          .selectAll("line")
+          .transition(t as any)
+          .attr("x2", curWidth - marginRight);
         gChain.transition(t).call(chainageAxis as any, { equal, centers });
         placeOverlays(zy, t);
       } else {
+        svg
+          .attr("width", curWidth)
+          .attr("viewBox", [0, 0, curWidth, height].join(","));
         strip.attr("transform", transform);
+        gGrid.call(yGrid, zy);
         gChain.call(chainageAxis, { equal, centers });
         placeOverlays(zy);
       }
+      placeAnnotations(zy);
     };
 
     placeStrips(false);
@@ -395,8 +427,9 @@ export default {
 
     focus
       .append("line")
+      .attr("class", "crosshair-rule") // placeStrips retargets its x2
       .attr("x1", marginLeft)
-      .attr("x2", svgWidth - marginRight)
+      .attr("x2", curWidth - marginRight)
       .attr("stroke", "currentColor")
       .attr("stroke-opacity", 0.3);
 
@@ -427,7 +460,7 @@ export default {
         py >= marginTop &&
         py <= yBottom &&
         px >= marginLeft &&
-        px <= svgWidth - marginRight;
+        px <= curWidth - marginRight;
 
       svg.style("cursor", () =>
         inPlot && stripIndexAt(px) != null ? "pointer" : null,
@@ -473,6 +506,9 @@ export default {
       marginRight,
       marginTop,
       marginBottom,
+      // the profile scrolls sideways in its host; a plain trackpad
+      // side-scroll carries deltaY jitter that would nudge the zoom
+      wheelRequiresModifier: true,
       onZoom: (zy1) => {
         zy = zy1;
 

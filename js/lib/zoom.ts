@@ -16,6 +16,7 @@ export function verticalZoom(
     marginTop,
     marginBottom,
     onZoom,
+    wheelRequiresModifier = false,
   }: {
     y: VerticalScale;
     width: number;
@@ -25,6 +26,9 @@ export function verticalZoom(
     marginTop: number;
     marginBottom: number;
     onZoom: (zy: VerticalScale) => void;
+    // require ctrl/cmd for wheel zoom, so plain wheel scrolls the host
+    // instead (trackpad pinch sets ctrlKey, so pinch-zoom still works)
+    wheelRequiresModifier?: boolean;
   },
 ): void {
   let zy = y; // the currently zoomed vertical scale
@@ -75,9 +79,19 @@ export function verticalZoom(
   const zoom = d3
     .zoom<SVGSVGElement, unknown>()
     .scaleExtent([1, 16])
-    .filter(
-      (event) => !event.button && (event.type === "wheel" || !event.shiftKey),
-    )
+    .filter((event) => {
+      if (event.button) {
+        return false;
+      }
+      if (event.type === "wheel") {
+        if (wheelRequiresModifier) {
+          return event.ctrlKey || event.metaKey;
+        }
+        return true;
+      }
+      // drag-pan: shift is reserved for the brush
+      return !event.shiftKey;
+    })
     .extent([
       [marginLeft, marginTop], // top-left
       [width - marginRight, height - marginBottom], // bottom-right
