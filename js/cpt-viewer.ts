@@ -1,18 +1,12 @@
 import type { AnyModel, RenderProps } from "@anywidget/types";
 import * as d3 from "./lib/d3";
 import { hatchDefs } from "./lib/hatch";
-import { buildSeries, lineFor } from "./lib/channels";
+import { cptChart } from "./lib/cpt-chart";
 import { layerRenderer, placeLayerColumn } from "./lib/layers";
 import { annotationLayer } from "./lib/annotations";
 import { overlayLayer } from "./lib/overlays";
 import { crosshair } from "./lib/crosshair";
-import {
-  makeVerticalScale,
-  plotClip,
-  verticalAxisTitle,
-  yAxisFor,
-  yGridFor,
-} from "./lib/frame";
+import { plotClip } from "./lib/frame";
 import { resolveVertical } from "./lib/vertical";
 import { verticalZoom } from "./lib/zoom";
 import { editableColumn } from "./lib/editing";
@@ -26,7 +20,6 @@ import type {
   Interpretation,
   Layer,
   Overlay,
-  Series,
   SoilClass,
   VerticalSpec,
 } from "./lib/types";
@@ -188,75 +181,6 @@ export default {
 
     const { totalWidth, x0 } = layoutColumns(columns, width, column);
 
-    // bottom cpt axes read left-to-right, top axes right-to-left (mirrored),
-    // so the two dominant curves (qc and Rf) sit back-to-back
-    const series = buildSeries({
-      channels,
-      cptData,
-      axisLimits,
-      rangeBottom: [marginLeft, width - marginRight],
-      rangeTop: [width - marginRight, marginLeft],
-    });
-
-    // one slot per x-axis, stacked outward from the plot edge
-    const axisSlot = 30;
-    const bottomSeries = series.filter((s) => s.side === "bottom");
-    const topSeries = series.filter((s) => s.side === "top");
-    const marginTop = margin.top + axisSlot * topSeries.length;
-    const marginBottom = margin.bottom + axisSlot * bottomSeries.length;
-
-    const y = makeVerticalScale(
-      [vertical[0]!, vertical[vertical.length - 1]!],
-      [marginTop, height - marginBottom],
-      axisLimits[vert.key],
-    );
-
-    let zy = y; // the currently zoomed depth scale
-
-    const xAxis = (g: AnySelection<SVGGElement>, s: Series, slotY: number) =>
-      g
-        .attr("transform", `translate(0,${slotY})`)
-        .call(
-          (s.side === "bottom" ? d3.axisBottom : d3.axisTop)(s.x).ticks(
-            width / 100,
-          ),
-        )
-        .call((g) => g.selectAll("text").attr("fill", s.color))
-        .call((g) => g.selectAll("line").attr("stroke", s.color))
-        .call((g) => g.select(".domain").attr("stroke", s.color))
-        .call((g) =>
-          g
-            .append("text")
-            .attr(
-              "x",
-              s.side === "bottom" ? marginLeft - 8 : width - marginRight + 8,
-            )
-            .attr("dy", "0.32em")
-            .attr("fill", s.color)
-            .attr("text-anchor", s.side === "bottom" ? "end" : "start")
-            .attr("font-weight", "bold")
-            .text(s.unit ? `${s.label} [${s.unit}]` : s.label),
-        );
-
-    // vertical gridlines follow the innermost bottom axis (qc by default)
-    const gridX = bottomSeries[0]?.x ?? topSeries[0]?.x;
-
-    const xGrid = (g: AnySelection<SVGGElement>) =>
-      g
-        .attr("stroke", "currentColor")
-        .attr("stroke-opacity", 0.1)
-        .selectAll("line")
-        .data(gridX ? gridX.ticks(width / 100) : [])
-        .join("line")
-        .attr("x1", (d) => 0.5 + gridX(d))
-        .attr("x2", (d) => 0.5 + gridX(d))
-        .attr("y1", marginTop)
-        .attr("y2", height - marginBottom);
-
-    const yAxis = yAxisFor(marginLeft, height);
-
-    const yGrid = yGridFor({ x1: marginLeft, x2: totalWidth, height });
-
     const svg = d3
       .select(el)
       .append("svg")
@@ -269,41 +193,24 @@ export default {
       .style("user-select", "none")
       .style("-webkit-user-select", "none"); // still required in Safari
 
-    const clipId = plotClip(svg, "plot-clip", {
-      x: marginLeft,
-      y: marginTop,
-      width: width - marginLeft - marginRight,
-      height: height - marginTop - marginBottom,
-    });
+    // the chart core: curves, stacked x axes, grids, the vertical axis.
+    // Margins come back grown by the axis stacking; update() redraws the
+    // chart's parts in the zoom loop alongside the widget's own placers
+    const { series, seriesByKey, y, clipId, marginTop, marginBottom, update } =
+      cptChart(svg, {
+        cptData,
+        vertical,
+        vert,
+        channels,
+        axisLimits,
+        width,
+        height,
+        margin,
+        // gridlines reach across the layer columns
+        gridRight: totalWidth,
+      });
 
-    const gGrid = svg.append("g").call(yGrid, y);
-
-    svg.append("g").call(xGrid);
-
-    bottomSeries.forEach((s, i) =>
-      svg.append("g").call(xAxis, s, height - marginBottom + axisSlot * i),
-    );
-
-    topSeries.forEach((s, i) =>
-      svg.append("g").call(xAxis, s, marginTop - axisSlot * i),
-    );
-
-    const gy = svg.append("g").call(yAxis, y);
-
-    verticalAxisTitle(svg, vert.label);
-
-    const seriesPaths = svg
-      .append("g")
-      .selectAll<SVGPathElement, Series>("path")
-      .data(series, (s) => s.key)
-      .join("path")
-      .attr("clip-path", `url(#${clipId})`)
-      .attr("fill", "none")
-      .attr("stroke", (s) => s.color)
-      .attr("stroke-width", 1)
-      .attr("d", (s) => lineFor(s, vertical, y));
-
-    const seriesByKey = new Map(series.map((s) => [s.key, s]));
+    let zy = y; // the currently zoomed depth scale
 
     const placeOverlays = overlayLayer(svg, model.get("overlays") ?? [], {
       seriesByKey,
@@ -369,9 +276,10 @@ export default {
     // then a clipped body holding the layers. The editable column is just
     // another datum here — its extra machinery hangs off the same nodes
     const gColumn = svg
-      .selectAll<SVGGElement, ColumnSpec>(null as unknown as string)
+      .selectAll<SVGGElement, ColumnSpec>("g.column")
       .data(columns)
       .join("g")
+      .attr("class", "column")
       .attr("transform", (d) => `translate(${d.x},0)`)
       .call(columnHeader, (d: ColumnSpec) => d.label);
 
@@ -442,10 +350,7 @@ export default {
       onZoom: (zy1) => {
         zy = zy1;
 
-        gy.call(yAxis, zy);
-        gGrid.call(yGrid, zy);
-
-        seriesPaths.attr("d", (s) => lineFor(s, vertical, zy));
+        update(zy);
 
         placeOverlays(zy);
         placeAnnotations(zy);

@@ -272,9 +272,10 @@ export default {
     // one group per strip, translated to its anchor; contents are
     // strip-local. The frame doubles as the hover/click hit area
     const strip = svg
-      .selectAll<SVGGElement, ProfileCpt>(null as unknown as string)
+      .selectAll<SVGGElement, ProfileCpt>("g.strip")
       .data(cpts)
-      .join("g");
+      .join("g")
+      .attr("class", "strip");
 
     strip
       .append("rect")

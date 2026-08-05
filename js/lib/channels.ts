@@ -83,12 +83,13 @@ export function buildSeries({
 }): Series[] {
   const requested = channels.length ? channels : Object.keys(channelDefaults);
 
-  const series = requested
-    .map((c, i) => {
-      const merged = resolveChannel(c, d3.schemeTableau10[i % 10]);
+  return requested
+    .map((channel, index) => {
+      const merged = resolveChannel(channel, d3.schemeTableau10[index % 10]);
 
       return {
         ...merged,
+        values: cptData[merged.key],
         x: makeXScale(
           cptData[merged.key],
           merged.side === "top" ? rangeTop : rangeBottom,
@@ -96,13 +97,7 @@ export function buildSeries({
         ),
       };
     })
-    .filter((s) => s.x) as Series[];
-
-  for (const s of series) {
-    s.values = cptData[s.key];
-  }
-
-  return series;
+    .filter((s): s is Series => s.x !== null);
 }
 
 // path for one series: values in the series' x, vertical samples on a

@@ -27,10 +27,10 @@ export function chainageAxisFor(layout: StripLayout) {
       return;
     }
     // Transition.selection() unwraps; Selection.selection() is identity
-    const sel: AnySelection<SVGGElement> = gOrT.selection();
+    const selection: AnySelection<SVGGElement> = gOrT.selection();
 
     if (!equal && span > 0) {
-      sel.selectAll("text.chain-label").remove();
+      selection.selectAll("text.chain-label").remove();
       gOrT.call(
         d3
           .axisBottom(
@@ -46,32 +46,35 @@ export function chainageAxisFor(layout: StripLayout) {
       return;
     }
 
-    sel.selectAll(".tick,.domain").remove();
+    selection.selectAll(".tick,.domain").remove();
 
     const labelX = (gr: { idx: number[] }) =>
       gr.idx.reduce((s, i) => s + centers[i], 0) / gr.idx.length;
 
-    const labels = sel
-      .selectAll<SVGTextElement, (typeof groups)[number]>("text.chain-label")
-      .data(groups);
-    // entering labels place directly; only updates ride the transition
-    const merged = labels
-      .enter()
-      .append("text")
-      .attr("class", "chain-label")
-      .attr("y", 9)
-      .attr("dy", "0.71em")
-      .attr("text-anchor", "middle")
-      .attr("font-size", 10)
-      .attr("fill", "currentColor")
-      .attr("x", labelX)
-      .text((gr) => formatDistance(gr.dist))
-      .merge(labels);
-    if (gOrT !== sel) {
-      merged.transition(gOrT).attr("x", labelX);
+    type Group = (typeof groups)[number];
+
+    // entering labels place directly at labelX, so the transition below
+    // is a no-op for them — only surviving labels visibly slide
+    const labels = selection
+      .selectAll<SVGTextElement, Group>("text.chain-label")
+      .data(groups)
+      .join((enter) =>
+        enter
+          .append("text")
+          .attr("class", "chain-label")
+          .attr("y", 9)
+          .attr("dy", "0.71em")
+          .attr("text-anchor", "middle")
+          .attr("font-size", 10)
+          .attr("fill", "currentColor")
+          .attr("x", labelX)
+          .text((gr) => formatDistance(gr.dist)),
+      );
+
+    if (gOrT !== selection) {
+      labels.transition(gOrT).attr("x", labelX);
     } else {
-      merged.attr("x", labelX);
+      labels.attr("x", labelX);
     }
-    labels.exit().remove();
   };
 }
