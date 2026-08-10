@@ -4492,27 +4492,62 @@ function cptChart(svg, {
     update
   };
 }
+function dodgeLabels(anchors, separation, extent) {
+  const placed = Array.from({ length: anchors.length }, () => 0);
+  if (anchors.length === 0) {
+    return placed;
+  }
+  const centerOf = (cluster) => {
+    const mean = cluster.anchorSum / cluster.size;
+    if (!extent) {
+      return mean;
+    }
+    const halfSpan = (cluster.size - 1) * separation / 2;
+    return Math.max(Math.min(mean, extent[1] - halfSpan), extent[0] + halfSpan);
+  };
+  const firstMemberOf = (cluster) => centerOf(cluster) - (cluster.size - 1) * separation / 2;
+  const lastMemberOf = (cluster) => centerOf(cluster) + (cluster.size - 1) * separation / 2;
+  const clusters = [];
+  anchors.forEach((anchor, index) => {
+    clusters.push({ anchorSum: anchor, size: 1, firstIndex: index });
+    while (clusters.length > 1) {
+      const above = clusters[clusters.length - 2];
+      const below = clusters[clusters.length - 1];
+      const gap = firstMemberOf(below) - lastMemberOf(above);
+      if (gap >= separation - 1e-6) {
+        break;
+      }
+      above.anchorSum += below.anchorSum;
+      above.size += below.size;
+      clusters.pop();
+    }
+  });
+  for (const cluster of clusters) {
+    const center2 = centerOf(cluster);
+    for (let member = 0; member < cluster.size; member++) {
+      placed[cluster.firstIndex + member] = center2 + (member - (cluster.size - 1) / 2) * separation;
+    }
+  }
+  return placed;
+}
+const labelMargin = 28;
+const labelTextX = labelMargin - 4;
+const leaderEndX = labelMargin - 3;
+const depthLabelHeight = 12;
 function layerRenderer({
   columnWidth,
   classColor,
   classLabel,
-  hatchId
+  hatchId,
+  formatBoundary
 }) {
-  const labelMargin = 14;
   const bandData = (d) => (d.bands ?? []).map((b) => ({ ...b, top: d.top, bottom: d.bottom }));
-  const bandX = (rect) => rect.attr(
-    "x",
-    (b) => labelMargin + b.x1 * (columnWidth - labelMargin)
-  ).attr(
-    "width",
-    (b) => (b.x2 - b.x1) * (columnWidth - labelMargin)
-  );
+  const bandX = (rect) => rect.attr("x", (b) => labelMargin + b.x1 * (columnWidth - labelMargin)).attr("width", (b) => (b.x2 - b.x1) * (columnWidth - labelMargin));
   return (parent, layers) => {
     const layerGroup = parent.selectAll("g.layer").data(layers).join((enter) => {
       const g = enter.append("g").attr("class", "layer");
       g.append("rect").attr("x", labelMargin).attr("width", columnWidth - labelMargin).attr("stroke", "white");
       g.append("text").attr("class", "soil-label").attr("x", columnWidth / 2 + labelMargin / 2).attr("dy", "0.32em").attr("text-anchor", "middle").attr("font-size", 10).attr("fill", "#333").attr("stroke", "white").attr("stroke-width", 1.5).attr("paint-order", "stroke");
-      g.append("text").attr("class", "top-depth").attr("font-size", 10).attr("x", 10).attr("dominant-baseline", "middle").attr("text-anchor", "end");
       g.append("title");
       return g;
     });
@@ -4520,12 +4555,28 @@ function layerRenderer({
       "fill",
       (d) => d.bands ? "none" : d.class != null ? classColor(d.class) : d.color ?? "#ccc"
     );
-    layerGroup.select("text.soil-label").text(
-      (d) => d.bands ? "" : d.label ?? classLabel.get(d.class) ?? d.class ?? ""
-    );
+    layerGroup.select("text.soil-label").text((d) => d.bands ? "" : d.label ?? classLabel.get(d.class) ?? d.class ?? "");
     layerGroup.select("title").text((d) => d.bands ? d.label ?? "" : "");
     layerGroup.selectAll("rect.band").data(bandData).join("rect").attr("class", "band").call(bandX).attr("fill", (b) => b.color).attr("stroke", "white").attr("stroke-width", 0.5);
     layerGroup.selectAll("rect.hatch").data((d) => bandData(d).filter((b) => b.hatch)).join("rect").attr("class", "hatch").call(bandX).attr("fill", (b) => `url(#${hatchId.get(b.hatch)})`);
+    const boundaryData = (d) => {
+      const ls = typeof layers === "function" ? layers(d) : layers;
+      const last = ls[ls.length - 1];
+      return ls.length ? [
+        ...ls.map((l) => ({
+          layer: l,
+          which: "top",
+          format: formatBoundary
+        })),
+        { layer: last, which: "bottom", format: formatBoundary }
+      ] : [];
+    };
+    parent.selectAll("g.boundary").data(boundaryData).join((enter) => {
+      const g = enter.append("g").attr("class", "boundary");
+      g.append("text").attr("font-size", 10).attr("x", labelTextX).attr("dominant-baseline", "middle").attr("text-anchor", "end");
+      g.append("path").attr("fill", "none").attr("stroke", "#888").attr("stroke-width", 0.75);
+      return g;
+    });
   };
 }
 function placeLayerColumn(parent, y1) {
@@ -4533,7 +4584,46 @@ function placeLayerColumn(parent, y1) {
   layerGroup.select("rect").attr("y", (d) => Math.min(y1(d.top), y1(d.bottom))).attr("height", (d) => Math.abs(y1(d.bottom) - y1(d.top)));
   layerGroup.selectAll("rect.band, rect.hatch").attr("y", (d) => Math.min(y1(d.top), y1(d.bottom))).attr("height", (d) => Math.abs(y1(d.bottom) - y1(d.top)));
   layerGroup.select("text.soil-label").attr("y", (d) => (y1(d.top) + y1(d.bottom)) / 2);
-  layerGroup.select("text.top-depth").attr("y", (d) => y1(d.top)).text((d) => d.top.toFixed(1));
+  parent.each(function() {
+    placeDepthLabels(select(this), y1);
+  });
+}
+function placeDepthLabels(column, y1) {
+  const boundarySel = column.selectAll("g.boundary");
+  const nodes = boundarySel.nodes();
+  const data = boundarySel.data();
+  if (!nodes.length) {
+    return;
+  }
+  const [r0, r1] = y1.range();
+  const lo = Math.min(r0, r1);
+  const hi = Math.max(r0, r1);
+  const anchors = data.map((b) => y1(b.layer[b.which]));
+  const visible = [];
+  anchors.forEach((a, i) => {
+    if (a >= lo && a <= hi) {
+      visible.push(i);
+    }
+  });
+  const placed = dodgeLabels(
+    visible.map((i) => anchors[i]),
+    depthLabelHeight,
+    [lo + depthLabelHeight / 2, hi - depthLabelHeight / 2]
+  );
+  const posByIndex = /* @__PURE__ */ new Map();
+  visible.forEach((bi, j) => posByIndex.set(bi, placed[j]));
+  nodes.forEach((node, i) => {
+    const g = select(node);
+    const p = posByIndex.get(i);
+    if (p === void 0) {
+      g.attr("display", "none");
+      return;
+    }
+    g.attr("display", null);
+    g.select("text").attr("y", p).text(data[i].format(data[i].layer[data[i].which]));
+    const displaced = Math.abs(p - anchors[i]) > 0.5;
+    g.select("path").attr("display", displaced ? null : "none").attr("d", displaced ? `M${labelMargin},${anchors[i]}L${leaderEndX},${p}` : null);
+  });
 }
 function annotationLayer(svg, annotations, { clipId, marginLeft, marginRight, width }) {
   const currentWidth = typeof width === "function" ? width : () => width;
@@ -4847,10 +4937,7 @@ function layoutColumns(columns, width, column) {
 }
 const cptViewer = {
   /** @param context the model shared by every view of this widget */
-  initialize({
-    model,
-    signal
-  }) {
+  initialize({ model, signal }) {
   },
   render({ model, el, signal: hostSignal }) {
     const controller = new AbortController();
@@ -4861,6 +4948,7 @@ const cptViewer = {
     const cptData = model.get("cptData");
     const vert = resolveVertical(model.get("verticalKey"), "depth");
     const vertical = cptData[vert.key] ?? [];
+    const formatVertical = format(vert.format);
     const axisLimits = model.get("axisLimits") ?? {};
     const annotations = model.get("annotations") ?? [];
     const channels = model.get("channels") ?? [];
@@ -4872,9 +4960,7 @@ const cptViewer = {
       soilClasses.map((c) => c.name),
       soilClasses.map((c) => c.color)
     ).unknown("#ccc");
-    const classLabel = new Map(
-      soilClasses.map((c) => [c.name, c.label ?? c.name])
-    );
+    const classLabel = new Map(soilClasses.map((c) => [c.name, c.label ?? c.name]));
     const editedLayers = (model.get("editedLayers") ?? []).map((l) => ({
       ...l
     }));
@@ -4948,9 +5034,7 @@ const cptViewer = {
     });
     const usedHatches = [
       ...new Set(
-        columns.flatMap(
-          (c) => c.layers.flatMap((l) => (l.bands ?? []).map((b) => b.hatch))
-        )
+        columns.flatMap((c) => c.layers.flatMap((l) => (l.bands ?? []).map((b) => b.hatch)))
       )
     ].filter(Boolean);
     const hatchId = hatchDefs(svg, usedHatches);
@@ -4958,7 +5042,8 @@ const cptViewer = {
       columnWidth: column.width,
       classColor,
       classLabel,
-      hatchId
+      hatchId,
+      formatBoundary: formatVertical
     });
     const gColumn = svg.selectAll("g.column").data(columns).join("g").attr("class", "column").attr("transform", (d) => `translate(${d.x},0)`).call(columnHeader, (d) => d.label);
     const columnBody = gColumn.append("g").attr("clip-path", `url(#${columnClipId})`);
@@ -4991,7 +5076,7 @@ const cptViewer = {
     crosshair(svg, {
       series,
       vertical,
-      formatVertical: format(vert.format),
+      formatVertical,
       marginLeft,
       marginRight,
       width,

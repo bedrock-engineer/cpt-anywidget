@@ -59,13 +59,7 @@ export interface ColumnGeometry {
 
 export default {
   /** @param context the model shared by every view of this widget */
-  initialize({
-    model,
-    signal,
-  }: {
-    model: AnyModel<CptModel>;
-    signal: AbortSignal;
-  }) {
+  initialize({ model, signal }: { model: AnyModel<CptModel>; signal: AbortSignal }) {
     // Set up shared state, event handlers, or programmatic exports.
     // Use `signal` (AbortSignal) for cleanup when the widget is destroyed.
   },
@@ -88,6 +82,10 @@ export default {
     // (data passed raw via cptData= must arrive sorted)
     const vert = resolveVertical(model.get("verticalKey"), "depth");
     const vertical = cptData[vert.key] ?? [];
+
+    // one compiled formatter for every reading of the vertical
+    // coordinate: crosshair readout and layer boundary labels
+    const formatVertical = d3.format(vert.format);
 
     // optional per-channel [min, max] overrides, keyed like cptData
     // (plus "depth" for the shared depth axis)
@@ -123,9 +121,7 @@ export default {
       )
       .unknown("#ccc");
 
-    const classLabel = new Map(
-      soilClasses.map((c) => [c.name, c.label ?? c.name]),
-    );
+    const classLabel = new Map(soilClasses.map((c) => [c.name, c.label ?? c.name]));
 
     // manually editable layer column: one flat layer list in the same shape
     // as an interpretation column's layers; edits sync back to Python.
@@ -201,19 +197,18 @@ export default {
     // the chart core: curves, stacked x axes, grids, the vertical axis.
     // Margins come back grown by the axis stacking; update() redraws the
     // chart's parts in the zoom loop alongside the widget's own placers
-    const { series, seriesByKey, y, clipId, marginTop, marginBottom, update } =
-      cptChart(svg, {
-        cptData,
-        vertical,
-        vert,
-        channels,
-        axisLimits,
-        width,
-        height,
-        margin,
-        // gridlines reach across the layer columns
-        gridRight: totalWidth,
-      });
+    const { series, seriesByKey, y, clipId, marginTop, marginBottom, update } = cptChart(svg, {
+      cptData,
+      vertical,
+      vert,
+      channels,
+      axisLimits,
+      width,
+      height,
+      margin,
+      // gridlines reach across the layer columns
+      gridRight: totalWidth,
+    });
 
     let zy = y; // the currently zoomed depth scale
 
@@ -235,10 +230,7 @@ export default {
 
     // headers sit above the clip region so they don't scroll with zoom;
     // appended to the column group, so x is column-local
-    const columnHeader = (
-      g: AnySelection<SVGGElement>,
-      label: (d: ColumnSpec) => string,
-    ) =>
+    const columnHeader = (g: AnySelection<SVGGElement>, label: (d: ColumnSpec) => string) =>
       g
         .append("text")
         .attr("x", column.width / 2)
@@ -262,9 +254,7 @@ export default {
     // one <pattern> def per hatch char used by any column's bands
     const usedHatches = [
       ...new Set(
-        columns.flatMap((c) =>
-          c.layers.flatMap((l) => (l.bands ?? []).map((b) => b.hatch)),
-        ),
+        columns.flatMap((c) => c.layers.flatMap((l) => (l.bands ?? []).map((b) => b.hatch))),
       ),
     ].filter(Boolean) as string[];
 
@@ -275,6 +265,7 @@ export default {
       classColor,
       classLabel,
       hatchId,
+      formatBoundary: formatVertical,
     });
 
     // one group per column, translated to its slot: the header first,
@@ -288,17 +279,12 @@ export default {
       .attr("transform", (d) => `translate(${d.x},0)`)
       .call(columnHeader, (d: ColumnSpec) => d.label);
 
-    const columnBody = gColumn
-      .append("g")
-      .attr("clip-path", `url(#${columnClipId})`);
+    const columnBody = gColumn.append("g").attr("clip-path", `url(#${columnClipId})`);
 
-    const columnLayers = columnBody
-      .append("g")
-      .call(layerColumn, (d: ColumnSpec) => d.layers);
+    const columnLayers = columnBody.append("g").call(layerColumn, (d: ColumnSpec) => d.layers);
 
     const columnPlacers = [
-      (y1: d3.ScaleLinear<number, number>) =>
-        placeLayerColumn(columnLayers, y1),
+      (y1: d3.ScaleLinear<number, number>) => placeLayerColumn(columnLayers, y1),
     ];
 
     if (editedLayers.length) {
@@ -307,9 +293,7 @@ export default {
       // re-joined layer rects can never paint over the handles and steal
       // their pointer events
       const layersG = columnLayers.filter((d) => Boolean(d.editable));
-      const handlesG = columnBody
-        .filter((d) => Boolean(d.editable))
-        .append("g");
+      const handlesG = columnBody.filter((d) => Boolean(d.editable)).append("g");
 
       const placeHandles = editableColumn({
         model,
@@ -337,7 +321,7 @@ export default {
     crosshair(svg, {
       series,
       vertical,
-      formatVertical: d3.format(vert.format),
+      formatVertical,
       marginLeft,
       marginRight,
       width,
