@@ -1,5 +1,14 @@
 import type { Annotation, AnySelection, Placer } from "./types";
 
+interface AnnotationConfig {
+  clipId: string;
+  marginLeft: number;
+  marginRight: number;
+  /** a getter keeps the lines and labels tracking a host that
+      resizes (the profile's spacing toggle changes the svg width) */
+  width: number | (() => number);
+}
+
 // horizontal reference lines with labels, e.g. groundwater level:
 // {at, label, color?, dash?, position?: left|center|right, offset?: [dx, dy]}
 // — "at" is a value in the current vertical coordinate. Returns the
@@ -7,19 +16,7 @@ import type { Annotation, AnySelection, Placer } from "./types";
 export function annotationLayer(
   svg: AnySelection<SVGSVGElement>,
   annotations: Annotation[],
-  {
-    clipId,
-    marginLeft,
-    marginRight,
-    width,
-  }: {
-    clipId: string;
-    marginLeft: number;
-    marginRight: number;
-    /** a getter keeps the lines and labels tracking a host that
-        resizes (the profile's spacing toggle changes the svg width) */
-    width: number | (() => number);
-  },
+  { clipId, marginLeft, marginRight, width }: AnnotationConfig,
 ): Placer {
   const currentWidth = typeof width === "function" ? width : () => width;
 
@@ -45,7 +42,7 @@ export function annotationLayer(
     .attr("font-size", 11)
     .attr("fill", (d) => d.color ?? "currentColor")
     .attr("stroke", "white")
-    .attr("stroke-width", 2)
+    .attr("stroke-width", 1.5)
     .attr("paint-order", "stroke")
     .text((d) => d.label ?? "");
 
@@ -60,7 +57,10 @@ export function annotationLayer(
       right: w - marginRight - 6,
     };
     line.attr("x2", w - marginRight);
-    label.attr("x", (d) => labelX[d.position ?? "right"] + (d.offset?.[0] ?? 0));
+    label.attr(
+      "x",
+      (d) => labelX[d.position ?? "right"] + (d.offset?.[0] ?? 0),
+    );
     annotation.attr("transform", (d) => `translate(0,${y1(d.at)})`);
   };
 }

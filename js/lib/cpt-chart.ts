@@ -115,9 +115,13 @@ export function cptChart(
           .append("text")
           .attr(
             "x",
-            s.side === "bottom" ? margin.left - 8 : width - margin.right + 8,
+            s.side === "bottom" ? margin.left - 16 : width - margin.right + 16,
           )
-          .attr("dy", "0.32em")
+          // on the tick-number row, not the axis line — the innermost
+          // axis line coincides with the plot edge where the outermost
+          // y-axis tick label sits
+          .attr("y", s.side === "bottom" ? 9 : -9)
+          .attr("dy", s.side === "bottom" ? "0.71em" : "0em")
           .attr("fill", s.color)
           .attr("text-anchor", s.side === "bottom" ? "end" : "start")
           .attr("font-weight", "bold")
@@ -125,17 +129,17 @@ export function cptChart(
       );
 
   // vertical gridlines follow the innermost bottom axis (qc by default)
-  const gridX = bottomSeries[0]?.x ?? topSeries[0]?.x;
+  const gridXScale = bottomSeries[0]?.x ?? topSeries[0]?.x;
 
   const xGrid = (g: AnySelection<SVGGElement>) =>
     g
       .attr("stroke", "currentColor")
       .attr("stroke-opacity", 0.1)
       .selectAll("line")
-      .data(gridX ? gridX.ticks(width / 100) : [])
+      .data(gridXScale ? gridXScale.ticks(width / 100) : [])
       .join("line")
-      .attr("x1", (d) => 0.5 + gridX(d))
-      .attr("x2", (d) => 0.5 + gridX(d))
+      .attr("x1", (d) => 0.5 + gridXScale(d))
+      .attr("x2", (d) => 0.5 + gridXScale(d))
       .attr("y1", marginTop)
       .attr("y2", height - marginBottom);
 

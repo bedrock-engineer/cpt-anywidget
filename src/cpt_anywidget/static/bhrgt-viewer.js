@@ -1,14 +1,9 @@
-function annotationLayer(svg, annotations, {
-  clipId,
-  marginLeft,
-  marginRight,
-  width
-}) {
+function annotationLayer(svg, annotations, { clipId, marginLeft, marginRight, width }) {
   const currentWidth = typeof width === "function" ? width : () => width;
   const labelAnchor = { left: "start", center: "middle", right: "end" };
   const annotation = svg.append("g").attr("clip-path", `url(#${clipId})`).selectAll("g").data(annotations).join("g");
   const line = annotation.append("line").attr("x1", marginLeft).attr("stroke", (d) => d.color ?? "currentColor").attr("stroke-dasharray", (d) => d.dash ?? "4 3");
-  const label = annotation.append("text").attr("y", (d) => -4 + (d.offset?.[1] ?? 0)).attr("text-anchor", (d) => labelAnchor[d.position ?? "right"]).attr("font-size", 11).attr("fill", (d) => d.color ?? "currentColor").attr("stroke", "white").attr("stroke-width", 2).attr("paint-order", "stroke").text((d) => d.label ?? "");
+  const label = annotation.append("text").attr("y", (d) => -4 + (d.offset?.[1] ?? 0)).attr("text-anchor", (d) => labelAnchor[d.position ?? "right"]).attr("font-size", 11).attr("fill", (d) => d.color ?? "currentColor").attr("stroke", "white").attr("stroke-width", 1.5).attr("paint-order", "stroke").text((d) => d.label ?? "");
   return (y1) => {
     const w = currentWidth();
     const labelX = {
@@ -17,7 +12,10 @@ function annotationLayer(svg, annotations, {
       right: w - marginRight - 6
     };
     line.attr("x2", w - marginRight);
-    label.attr("x", (d) => labelX[d.position ?? "right"] + (d.offset?.[0] ?? 0));
+    label.attr(
+      "x",
+      (d) => labelX[d.position ?? "right"] + (d.offset?.[0] ?? 0)
+    );
     annotation.attr("transform", (d) => `translate(0,${y1(d.at)})`);
   };
 }
@@ -3650,8 +3648,7 @@ function verticalZoom(svg, {
   marginRight,
   marginTop,
   marginBottom,
-  onZoom,
-  wheelRequiresModifier = false
+  onZoom
 }) {
   let zy = y;
   const brush2 = brushY().keyModifiers(false).filter((event) => event.shiftKey).extent([
@@ -3683,10 +3680,7 @@ function verticalZoom(svg, {
       return false;
     }
     if (event.type === "wheel") {
-      if (wheelRequiresModifier) {
-        return event.ctrlKey || event.metaKey;
-      }
-      return true;
+      return event.ctrlKey || event.metaKey;
     }
     return !event.shiftKey;
   }).extent([

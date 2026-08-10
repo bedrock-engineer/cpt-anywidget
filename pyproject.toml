@@ -19,6 +19,21 @@ dev = [
     "brodata>=0.1.8",
     "marimo>=0.23.13",
 ]
+jupyter = [
+    "jupyterlab>=4.6.2",
+]
+
+# uv installs this repo as a path dependency in sandboxed notebooks and
+# caches the built wheel; without these keys a JS rebuild (which only
+# touches static/) never invalidates that cache and stale bundles survive
+# kernel restarts
+[tool.uv]
+cache-keys = [
+    { file = "pyproject.toml" },
+    { file = "src/cpt_anywidget/**/*.py" },
+    { file = "src/cpt_anywidget/static/*.js" },
+    { file = "src/cpt_anywidget/*.css" },
+]
 
 [build-system]
 requires = ["hatchling"]

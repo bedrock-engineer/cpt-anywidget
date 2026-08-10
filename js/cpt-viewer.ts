@@ -69,11 +69,16 @@ export default {
     // Set up shared state, event handlers, or programmatic exports.
     // Use `signal` (AbortSignal) for cleanup when the widget is destroyed.
   },
-  render({
-    model,
-    el,
-    signal,
-  }: RenderProps<CptModel> & { signal: AbortSignal }) {
+  render({ model, el, signal: hostSignal }: RenderProps<CptModel>) {
+    // marimo's anywidget host predates the AFM `signal` prop and passes
+    // undefined; synthesize one so abort-based cleanup works everywhere.
+    // The returned dispose function is the part every host honors.
+    const controller = new AbortController();
+    hostSignal?.addEventListener("abort", () => controller.abort(), {
+      once: true,
+    });
+    const signal = controller.signal;
+
     const cptData = model.get("cptData");
 
     // which cptData column is the vertical coordinate: a key string or a
@@ -135,7 +140,7 @@ export default {
 
     // should this be configurable too?
     const margin = {
-      left: 50,
+      left: 60,
       right: 50,
       top: 24,
       bottom: 10,
@@ -357,5 +362,7 @@ export default {
         placeColumns(zy);
       },
     });
+
+    return () => controller.abort();
   },
 };

@@ -13,14 +13,25 @@ def _():
     # hot-reload index.js in place when it changes (needs anywidget[dev])
     os.environ["ANYWIDGET_HMR"] = "1"
 
-    from cpt_anywidget import CPTViewer, to_vertical, from_vertical, layers_from_bhrgt
+    from cpt_anywidget import (
+        BHRGTViewer,
+        CPTViewer,
+        ProfileViewer,
+        chainage,
+        from_vertical,
+        layers_from_bhrgt,
+        to_vertical,
+    )
     from brodata.cpt import ConePenetrationTest
     from brodata.bhr import GeotechnicalBoreholeResearch
 
     return (
+        BHRGTViewer,
         CPTViewer,
         ConePenetrationTest,
         GeotechnicalBoreholeResearch,
+        ProfileViewer,
+        chainage,
         from_vertical,
         layers_from_bhrgt,
         mo,
@@ -31,7 +42,9 @@ def _():
 
 @app.cell(hide_code=True)
 def _(mo):
-    cpt_xml_files = sorted((mo.notebook_dir() / "broxml-cpt").glob("*.xml"))
+    cpt_xml_files = sorted(
+        (mo.notebook_dir().parent / "examples" / "broxml-cpt").glob("*.xml")
+    )
     file_select = mo.ui.dropdown(
         options={p.name: p for p in cpt_xml_files},
         value=cpt_xml_files[1].name,
@@ -43,7 +56,9 @@ def _(mo):
 
 @app.cell(hide_code=True)
 def _(mo):
-    bhrgt_xml_files = sorted((mo.notebook_dir() / "broxml-bhr-gt").glob("*.xml"))
+    bhrgt_xml_files = sorted(
+        (mo.notebook_dir().parent / "examples" / "broxml-bhr-gt").glob("*.xml")
+    )
     file_select_bhr = mo.ui.dropdown(
         options={p.name: p for p in bhrgt_xml_files},
         value=bhrgt_xml_files[0].name,
@@ -131,7 +146,16 @@ def _(cpt_data, mo):
     _options = [k for k in cpt_data if k not in ("depth", "nap")]
     channel_select = mo.ui.multiselect(
         options=_options,
-        value=[k for k in ("coneResistance", "localFriction", "frictionRatio") if k in _options],
+        value=[
+            k
+            for k in (
+                "coneResistance",
+                "localFriction",
+                "frictionRatio",
+                "porePressureU2",
+            )
+            if k in _options
+        ],
         label="channels",
     )
     channel_select
@@ -155,7 +179,7 @@ def _(mo):
     return (vertical_select,)
 
 
-@app.cell
+@app.cell(hide_code=True)
 def _(interp_dummy, mo):
     # seed the editable column from one of the interpretations; starts empty
     seed_select = mo.ui.radio(
@@ -176,6 +200,8 @@ def _(
     cpt_data,
     edited_store,
     from_vertical,
+    gwl,
+    hydrostatic,
     interp_dummy,
     interpretations,
     seed_select,
@@ -228,8 +254,9 @@ def _(
             {**l, "top": at(l["top"]), "bottom": at(l["bottom"])}
             for l in edited_store["layers"]
         ],
+        overlays=[hydrostatic],
         annotations=[
-            {"at": at(2.5), "label": "GWL", "color": "#4269d0", "position": "left"},
+            {"at": at(gwl), "label": "GWL", "color": "#4269d0", "position": "left"},
             {"at": at(cpt.predrilledDepth), "label": "Voorgeboorde diepte", "color": "#000000", "position": "right"},
         ],
     )
@@ -246,6 +273,25 @@ def _(cpt, to_vertical, vertical_select):
         return to_vertical(depth_below_surface, cpt.offset, vertical_select.value)
 
     return (at,)
+
+
+@app.cell
+def _(at, cpt):
+    # groundwater level (m below surface), shared by the GWL annotation
+    # and the hydrostatic overlay
+    gwl = 2.5
+
+    # hydrostatic pore pressure below the GWL (0.00981 MPa per m of water
+    # column): a polyline in porePressureU2's x coordinate against the
+    # shared vertical axis — the overlay only renders while u2 is plotted
+    _final = float(cpt.finalDepth)
+    hydrostatic = {
+        "channel": "porePressureU2",
+        "points": [[0, at(gwl)], [0.00981 * (_final - gwl), at(_final)]],
+        "color": "#4269d0",
+        "dash": "4,3",
+    }
+    return gwl, hydrostatic
 
 
 @app.cell
@@ -320,6 +366,109 @@ def _(gt_borehole, layers_from_bhrgt, vertical_select):
         else {}
     )
     return (borehole,)
+
+
+@app.cell(hide_code=True)
+def _(mo):
+    mo.md("""
+    ## Length profile
+    """)
+    return
+
+
+@app.cell(hide_code=True)
+def _(ConePenetrationTest, chainage, mo, pd):
+    # every sample CPT in one tidy long frame — name + nap + qc per row,
+    # the ProfileViewer facade groups rows by the name column — plus
+    # chainage positions from the delivered RD coordinates and each CPT's
+    # surface level for the maaiveld overlay
+    _cpts = [
+        ConePenetrationTest(str(p))
+        for p in sorted(
+            (mo.notebook_dir().parent / "examples" / "broxml-cpt").glob("*.xml")
+        )
+    ]
+    _frames = []
+    for _c in _cpts:
+        _df = _c.conePenetrationTest.apply(pd.to_numeric, errors="coerce")
+        _frames.append(
+            pd.DataFrame(
+                {
+                    "name": _c.broId,
+                    "nap": float(_c.offset) - _df["depth"],
+                    "coneResistance": _df["coneResistance"],
+                }
+            )
+        )
+    profile_data = pd.concat(_frames, ignore_index=True)
+    profile_positions = chainage(
+        {
+            _c.broId: (_c.deliveredLocation.x, _c.deliveredLocation.y)
+            for _c in _cpts
+        }
+    )
+    surface_levels = {_c.broId: float(_c.offset) for _c in _cpts}
+    return profile_data, profile_positions, surface_levels
+
+
+@app.cell
+def _(
+    ProfileViewer,
+    profile_data,
+    profile_positions,
+    set_selected_cpt,
+    surface_levels,
+):
+    # the two sample CPTs sit ~26 km apart, so true-scale chainage is an
+    # honest but extreme axis — the toolbar toggle switches to equal
+    # spacing. Clicking a strip syncs its name back via `selected`
+    profile = ProfileViewer(
+        profile_data,
+        positions=profile_positions,
+        channel="coneResistance",
+        overlays=[
+            {"levels": surface_levels, "label": "maaiveld", "color": "#8a6642"}
+        ],
+        height=420,
+    )
+
+    profile.observe(
+        lambda change: set_selected_cpt(change["new"]), names="selected"
+    )
+    profile
+    return
+
+
+@app.cell(hide_code=True)
+def _(mo):
+    # reactive mirror of the profile's selected strip
+    get_selected_cpt, set_selected_cpt = mo.state("")
+    return get_selected_cpt, set_selected_cpt
+
+
+@app.cell(hide_code=True)
+def _(get_selected_cpt, mo):
+    mo.md(f"""
+    Selected strip: **{get_selected_cpt() or '—'}** — "
+        "click a strip to (de)select it.
+    """)
+    return
+
+
+@app.cell(hide_code=True)
+def _(mo):
+    mo.md("""
+    ## Geotechnical borehole (BHR-GT)
+    """)
+    return
+
+
+@app.cell
+def _(BHRGTViewer, gt_borehole, layers_from_bhrgt):
+    # the standalone borehole viewer: soil-composition bands per layer,
+    # same zoom/hover contract as the CPT chart
+    BHRGTViewer(layers=layers_from_bhrgt(gt_borehole, "depth"))
+    return
 
 
 if __name__ == "__main__":

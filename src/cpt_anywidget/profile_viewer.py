@@ -51,8 +51,8 @@ def _split_cpts(data, name_key):
     for i, n in enumerate(names):
         rows.setdefault(n, []).append(i)
     return {
-        n: {k: [v[i] for i in idx] for k, v in columns.items()}
-        for n, idx in rows.items()
+        n: {k: [v[i] for i in index] for k, v in columns.items()}
+        for n, index in rows.items()
     }
 
 

@@ -6,6 +6,10 @@
   "scripts": {
     "dev": "ENTRY=js/cpt-viewer.ts vite build --watch",
     "typecheck": "tsc",
+    "lint": "oxlint",
+    "lint:fix": "oxlint --fix",
+    "fmt": "oxfmt",
+    "fmt:check": "oxfmt --check",
     "build": "tsc && rm -rf src/cpt_anywidget/static && ENTRY=js/cpt-viewer.ts vite build && ENTRY=js/bhrgt-viewer.ts vite build && ENTRY=js/profile-viewer.ts vite build"
   },
   "repository": {
@@ -41,6 +45,8 @@
     "@types/d3-shape": "^3.1.8",
     "@types/d3-transition": "^3.0.9",
     "@types/d3-zoom": "^3.0.8",
+    "oxfmt": "^0.63.0",
+    "oxlint": "^1.77.0",
     "typescript": "^7.0.2",
     "vite": "^7.3.6"
   }

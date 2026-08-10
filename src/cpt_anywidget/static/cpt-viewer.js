@@ -4381,24 +4381,116 @@ function buildSeries({
   rangeTop
 }) {
   const requested = channels.length ? channels : Object.keys(channelDefaults);
-  const series = requested.map((c, i) => {
-    const merged = resolveChannel(c, Tableau10[i % 10]);
+  return requested.map((channel, index) => {
+    const merged = resolveChannel(channel, Tableau10[index % 10]);
     return {
       ...merged,
+      values: cptData[merged.key],
       x: makeXScale(
         cptData[merged.key],
         merged.side === "top" ? rangeTop : rangeBottom,
         axisLimits[merged.key]
       )
     };
-  }).filter((s) => s.x);
-  for (const s of series) {
-    s.values = cptData[s.key];
-  }
-  return series;
+  }).filter((s) => s.x !== null);
 }
 function lineFor(s, vertical, y1) {
   return line().defined((_, i) => s.values[i] != null && vertical[i] != null).x((_, i) => s.x(s.values[i])).y((_, i) => y1(vertical[i]))(vertical);
+}
+function makeVerticalScale(fallback, range2, limits) {
+  const y2 = linear().domain(limits ?? fallback).range(range2);
+  if (!limits) {
+    y2.nice();
+  }
+  return y2;
+}
+const yAxisFor = (marginLeft, height) => (g, y1) => g.attr("transform", `translate(${marginLeft},0)`).call(axisLeft(y1).ticks(height / 60));
+const yGridFor = ({ x1, x2, height }) => (g, y1) => g.attr("stroke", "currentColor").attr("stroke-opacity", 0.1).selectAll("line").data(y1.ticks(height / 60)).join("line").attr("x1", x1).attr("x2", x2).attr("y1", (d) => 0.5 + y1(d)).attr("y2", (d) => 0.5 + y1(d));
+function verticalAxisTitle(svg, label) {
+  svg.append("text").attr("x", 0).attr("y", 14).attr("fill", "currentColor").attr("text-anchor", "start").attr("font-weight", "bold").text(label);
+}
+function plotClip(svg, prefix, { x: x2, y: y2, width, height }) {
+  const id2 = `${prefix}-${crypto.randomUUID()}`;
+  svg.append("clipPath").attr("id", id2).append("rect").attr("x", x2).attr("y", y2).attr("width", width).attr("height", height);
+  return id2;
+}
+function cptChart(svg, {
+  cptData,
+  vertical,
+  vert,
+  channels,
+  axisLimits,
+  width,
+  height,
+  margin,
+  gridRight
+}) {
+  const series = buildSeries({
+    channels,
+    cptData,
+    axisLimits,
+    rangeBottom: [margin.left, width - margin.right],
+    rangeTop: [width - margin.right, margin.left]
+  });
+  const axisSlot = 30;
+  const bottomSeries = series.filter((s) => s.side === "bottom");
+  const topSeries = series.filter((s) => s.side === "top");
+  const marginTop = margin.top + axisSlot * topSeries.length;
+  const marginBottom = margin.bottom + axisSlot * bottomSeries.length;
+  const y2 = makeVerticalScale(
+    [vertical[0], vertical[vertical.length - 1]],
+    [marginTop, height - marginBottom],
+    axisLimits[vert.key]
+  );
+  const xAxis = (g, s, slotY) => g.attr("transform", `translate(0,${slotY})`).call(
+    (s.side === "bottom" ? axisBottom : axisTop)(s.x).ticks(
+      width / 100
+    )
+  ).call((g2) => g2.selectAll("text").attr("fill", s.color)).call((g2) => g2.selectAll("line").attr("stroke", s.color)).call((g2) => g2.select(".domain").attr("stroke", s.color)).call(
+    (g2) => g2.append("text").attr(
+      "x",
+      s.side === "bottom" ? margin.left - 16 : width - margin.right + 16
+    ).attr("y", s.side === "bottom" ? 9 : -9).attr("dy", s.side === "bottom" ? "0.71em" : "0em").attr("fill", s.color).attr("text-anchor", s.side === "bottom" ? "end" : "start").attr("font-weight", "bold").text(s.unit ? `${s.label} [${s.unit}]` : s.label)
+  );
+  const gridXScale = bottomSeries[0]?.x ?? topSeries[0]?.x;
+  const xGrid = (g) => g.attr("stroke", "currentColor").attr("stroke-opacity", 0.1).selectAll("line").data(gridXScale ? gridXScale.ticks(width / 100) : []).join("line").attr("x1", (d) => 0.5 + gridXScale(d)).attr("x2", (d) => 0.5 + gridXScale(d)).attr("y1", marginTop).attr("y2", height - marginBottom);
+  const yAxis = yAxisFor(margin.left, height);
+  const yGrid = yGridFor({
+    x1: margin.left,
+    x2: gridRight ?? width - margin.right,
+    height
+  });
+  const clipId = plotClip(svg, "plot-clip", {
+    x: margin.left,
+    y: marginTop,
+    width: width - margin.left - margin.right,
+    height: height - marginTop - marginBottom
+  });
+  const gGrid = svg.append("g").call(yGrid, y2);
+  svg.append("g").call(xGrid);
+  bottomSeries.forEach(
+    (s, i) => svg.append("g").call(xAxis, s, height - marginBottom + axisSlot * i)
+  );
+  topSeries.forEach(
+    (s, i) => svg.append("g").call(xAxis, s, marginTop - axisSlot * i)
+  );
+  const gy = svg.append("g").call(yAxis, y2);
+  verticalAxisTitle(svg, vert.label);
+  const seriesPaths = svg.append("g").selectAll("path").data(series, (s) => s.key).join("path").attr("clip-path", `url(#${clipId})`).attr("fill", "none").attr("stroke", (s) => s.color).attr("stroke-width", 1).attr("d", (s) => lineFor(s, vertical, y2));
+  const update = (y1) => {
+    gy.call(yAxis, y1);
+    gGrid.call(yGrid, y1);
+    seriesPaths.attr("d", (s) => lineFor(s, vertical, y1));
+  };
+  return {
+    series,
+    seriesByKey: new Map(series.map((s) => [s.key, s])),
+    y: y2,
+    clipId,
+    marginTop,
+    marginBottom,
+    update
+  };
 }
 function layerRenderer({
   columnWidth,
@@ -4408,7 +4500,13 @@ function layerRenderer({
 }) {
   const labelMargin = 14;
   const bandData = (d) => (d.bands ?? []).map((b) => ({ ...b, top: d.top, bottom: d.bottom }));
-  const bandX = (rect) => rect.attr("x", (b) => labelMargin + b.x1 * (columnWidth - labelMargin)).attr("width", (b) => (b.x2 - b.x1) * (columnWidth - labelMargin));
+  const bandX = (rect) => rect.attr(
+    "x",
+    (b) => labelMargin + b.x1 * (columnWidth - labelMargin)
+  ).attr(
+    "width",
+    (b) => (b.x2 - b.x1) * (columnWidth - labelMargin)
+  );
   return (parent, layers) => {
     const layerGroup = parent.selectAll("g.layer").data(layers).join((enter) => {
       const g = enter.append("g").attr("class", "layer");
@@ -4437,17 +4535,12 @@ function placeLayerColumn(parent, y1) {
   layerGroup.select("text.soil-label").attr("y", (d) => (y1(d.top) + y1(d.bottom)) / 2);
   layerGroup.select("text.top-depth").attr("y", (d) => y1(d.top)).text((d) => d.top.toFixed(1));
 }
-function annotationLayer(svg, annotations, {
-  clipId,
-  marginLeft,
-  marginRight,
-  width
-}) {
+function annotationLayer(svg, annotations, { clipId, marginLeft, marginRight, width }) {
   const currentWidth = typeof width === "function" ? width : () => width;
   const labelAnchor = { left: "start", center: "middle", right: "end" };
   const annotation = svg.append("g").attr("clip-path", `url(#${clipId})`).selectAll("g").data(annotations).join("g");
   const line2 = annotation.append("line").attr("x1", marginLeft).attr("stroke", (d) => d.color ?? "currentColor").attr("stroke-dasharray", (d) => d.dash ?? "4 3");
-  const label = annotation.append("text").attr("y", (d) => -4 + (d.offset?.[1] ?? 0)).attr("text-anchor", (d) => labelAnchor[d.position ?? "right"]).attr("font-size", 11).attr("fill", (d) => d.color ?? "currentColor").attr("stroke", "white").attr("stroke-width", 2).attr("paint-order", "stroke").text((d) => d.label ?? "");
+  const label = annotation.append("text").attr("y", (d) => -4 + (d.offset?.[1] ?? 0)).attr("text-anchor", (d) => labelAnchor[d.position ?? "right"]).attr("font-size", 11).attr("fill", (d) => d.color ?? "currentColor").attr("stroke", "white").attr("stroke-width", 1.5).attr("paint-order", "stroke").text((d) => d.label ?? "");
   return (y1) => {
     const w = currentWidth();
     const labelX = {
@@ -4456,7 +4549,10 @@ function annotationLayer(svg, annotations, {
       right: w - marginRight - 6
     };
     line2.attr("x2", w - marginRight);
-    label.attr("x", (d) => labelX[d.position ?? "right"] + (d.offset?.[0] ?? 0));
+    label.attr(
+      "x",
+      (d) => labelX[d.position ?? "right"] + (d.offset?.[0] ?? 0)
+    );
     annotation.attr("transform", (d) => `translate(0,${y1(d.at)})`);
   };
 }
@@ -4505,23 +4601,6 @@ function crosshair(svg, {
   }
   svg.on("pointerenter pointermove", pointermoved).on("pointerleave", () => focus.attr("display", "none"));
 }
-function makeVerticalScale(fallback, range2, limits) {
-  const y2 = linear().domain(limits ?? fallback).range(range2);
-  if (!limits) {
-    y2.nice();
-  }
-  return y2;
-}
-const yAxisFor = (marginLeft, height) => (g, y1) => g.attr("transform", `translate(${marginLeft},0)`).call(axisLeft(y1).ticks(height / 60));
-const yGridFor = ({ x1, x2, height }) => (g, y1) => g.attr("stroke", "currentColor").attr("stroke-opacity", 0.1).selectAll("line").data(y1.ticks(height / 60)).join("line").attr("x1", x1).attr("x2", x2).attr("y1", (d) => 0.5 + y1(d)).attr("y2", (d) => 0.5 + y1(d));
-function verticalAxisTitle(svg, label) {
-  svg.append("text").attr("x", 0).attr("y", 14).attr("fill", "currentColor").attr("text-anchor", "start").attr("font-weight", "bold").text(label);
-}
-function plotClip(svg, prefix, { x: x2, y: y2, width, height }) {
-  const id2 = `${prefix}-${crypto.randomUUID()}`;
-  svg.append("clipPath").attr("id", id2).append("rect").attr("x", x2).attr("y", y2).attr("width", width).attr("height", height);
-  return id2;
-}
 const verticalDefaults = {
   depth: { label: "depth [m]", up: false, format: ".2f" },
   nap: { label: "NAP [m]", up: true, format: "+.2f" }
@@ -4546,8 +4625,7 @@ function verticalZoom(svg, {
   marginRight,
   marginTop,
   marginBottom,
-  onZoom,
-  wheelRequiresModifier = false
+  onZoom
 }) {
   let zy = y2;
   const brush2 = brushY().keyModifiers(false).filter((event) => event.shiftKey).extent([
@@ -4579,10 +4657,7 @@ function verticalZoom(svg, {
       return false;
     }
     if (event.type === "wheel") {
-      if (wheelRequiresModifier) {
-        return event.ctrlKey || event.metaKey;
-      }
-      return true;
+      return event.ctrlKey || event.metaKey;
     }
     return !event.shiftKey;
   }).extent([
@@ -4754,15 +4829,15 @@ function layoutColumns(columns, width, column) {
   const columnX = (i) => width + column.gap + i * slotWidth;
   let slot = 0;
   let leftSlot = 0;
-  for (const c of columns) {
-    if (c.side === "left") {
+  for (const column2 of columns) {
+    if (column2.side === "left") {
       leftSlot += 1;
-      c.x = -leftSlot * slotWidth;
+      column2.x = -leftSlot * slotWidth;
     } else {
-      if (c.gapBefore) {
+      if (column2.gapBefore) {
         slot += 1;
       }
-      c.x = columnX(slot);
+      column2.x = columnX(slot);
       slot += 1;
     }
   }
@@ -4777,11 +4852,12 @@ const cptViewer = {
     signal
   }) {
   },
-  render({
-    model,
-    el,
-    signal
-  }) {
+  render({ model, el, signal: hostSignal }) {
+    const controller = new AbortController();
+    hostSignal?.addEventListener("abort", () => controller.abort(), {
+      once: true
+    });
+    const signal = controller.signal;
     const cptData = model.get("cptData");
     const vert = resolveVertical(model.get("verticalKey"), "depth");
     const vertical = cptData[vert.key] ?? [];
@@ -4804,8 +4880,14 @@ const cptViewer = {
     }));
     const width = model.get("width") || 400;
     const height = model.get("height") || 800;
-    const marginLeft = 50;
-    const marginRight = 50;
+    const margin = {
+      left: 60,
+      right: 50,
+      top: 24,
+      bottom: 10
+    };
+    const marginLeft = margin.left;
+    const marginRight = margin.right;
     const column = { width: 72, gap: 8 };
     const columns = [
       ...boreholeLayers.length ? [
@@ -4831,59 +4913,20 @@ const cptViewer = {
       ] : []
     ];
     const { totalWidth, x0 } = layoutColumns(columns, width, column);
-    const series = buildSeries({
-      channels,
-      cptData,
-      axisLimits,
-      rangeBottom: [marginLeft, width - marginRight],
-      rangeTop: [width - marginRight, marginLeft]
-    });
-    const axisSlot = 30;
-    const bottomSeries = series.filter((s) => s.side === "bottom");
-    const topSeries = series.filter((s) => s.side === "top");
-    const marginTop = 24 + axisSlot * topSeries.length;
-    const marginBottom = 10 + axisSlot * bottomSeries.length;
-    const y2 = makeVerticalScale(
-      [vertical[0], vertical[vertical.length - 1]],
-      [marginTop, height - marginBottom],
-      axisLimits[vert.key]
-    );
-    let zy = y2;
-    const xAxis = (g, s, slotY) => g.attr("transform", `translate(0,${slotY})`).call(
-      (s.side === "bottom" ? axisBottom : axisTop)(s.x).ticks(
-        width / 100
-      )
-    ).call((g2) => g2.selectAll("text").attr("fill", s.color)).call((g2) => g2.selectAll("line").attr("stroke", s.color)).call((g2) => g2.select(".domain").attr("stroke", s.color)).call(
-      (g2) => g2.append("text").attr(
-        "x",
-        s.side === "bottom" ? marginLeft - 8 : width - marginRight + 8
-      ).attr("dy", "0.32em").attr("fill", s.color).attr("text-anchor", s.side === "bottom" ? "end" : "start").attr("font-weight", "bold").text(s.unit ? `${s.label} [${s.unit}]` : s.label)
-    );
-    const gridX = bottomSeries[0]?.x ?? topSeries[0]?.x;
-    const xGrid = (g) => g.attr("stroke", "currentColor").attr("stroke-opacity", 0.1).selectAll("line").data(gridX ? gridX.ticks(width / 100) : []).join("line").attr("x1", (d) => 0.5 + gridX(d)).attr("x2", (d) => 0.5 + gridX(d)).attr("y1", marginTop).attr("y2", height - marginBottom);
-    const yAxis = yAxisFor(marginLeft, height);
-    const yGrid = yGridFor({ x1: marginLeft, x2: totalWidth, height });
     const svg = select(el).append("svg").attr("viewBox", [x0, 0, totalWidth - x0, height].join(",")).attr("width", totalWidth - x0).attr("height", height).style("max-width", "100%").style("height", "auto").style("user-select", "none").style("-webkit-user-select", "none");
-    const clipId = plotClip(svg, "plot-clip", {
-      x: marginLeft,
-      y: marginTop,
-      width: width - marginLeft - marginRight,
-      height: height - marginTop - marginBottom
+    const { series, seriesByKey, y: y2, clipId, marginTop, marginBottom, update } = cptChart(svg, {
+      cptData,
+      vertical,
+      vert,
+      channels,
+      axisLimits,
+      width,
+      height,
+      margin,
+      // gridlines reach across the layer columns
+      gridRight: totalWidth
     });
-    const gGrid = svg.append("g").call(yGrid, y2);
-    svg.append("g").call(xGrid);
-    bottomSeries.forEach(
-      (s, i) => svg.append("g").call(xAxis, s, height - marginBottom + axisSlot * i)
-    );
-    topSeries.forEach(
-      (s, i) => svg.append("g").call(xAxis, s, marginTop - axisSlot * i)
-    );
-    const gy = svg.append("g").call(yAxis, y2);
-    verticalAxisTitle(svg, vert.label);
-    for (const s of series) {
-      s.path = svg.append("path").attr("clip-path", `url(#${clipId})`).attr("d", lineFor(s, vertical, y2)).attr("fill", "none").attr("stroke", s.color).attr("stroke-width", 1);
-    }
-    const seriesByKey = new Map(series.map((s) => [s.key, s]));
+    let zy = y2;
     const placeOverlays = overlayLayer(svg, model.get("overlays") ?? [], {
       seriesByKey,
       clipId
@@ -4917,7 +4960,7 @@ const cptViewer = {
       classLabel,
       hatchId
     });
-    const gColumn = svg.selectAll(null).data(columns).join("g").attr("transform", (d) => `translate(${d.x},0)`).call(columnHeader, (d) => d.label);
+    const gColumn = svg.selectAll("g.column").data(columns).join("g").attr("class", "column").attr("transform", (d) => `translate(${d.x},0)`).call(columnHeader, (d) => d.label);
     const columnBody = gColumn.append("g").attr("clip-path", `url(#${columnClipId})`);
     const columnLayers = columnBody.append("g").call(layerColumn, (d) => d.layers);
     const columnPlacers = [
@@ -4941,7 +4984,9 @@ const cptViewer = {
       });
       columnPlacers.push(placeHandles);
     }
-    const placeColumns = (y1) => columnPlacers.forEach((place) => place(y1));
+    const placeColumns = (y1) => {
+      columnPlacers.forEach((place) => place(y1));
+    };
     placeColumns(y2);
     crosshair(svg, {
       series,
@@ -4962,16 +5007,13 @@ const cptViewer = {
       marginBottom,
       onZoom: (zy1) => {
         zy = zy1;
-        gy.call(yAxis, zy);
-        gGrid.call(yGrid, zy);
-        for (const s of series) {
-          s.path.attr("d", lineFor(s, vertical, zy));
-        }
+        update(zy);
         placeOverlays(zy);
         placeAnnotations(zy);
         placeColumns(zy);
       }
     });
+    return () => controller.abort();
   }
 };
 export {

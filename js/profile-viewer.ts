@@ -10,6 +10,7 @@ import {
   yAxisFor,
   yGridFor,
 } from "./lib/frame";
+import { minimap } from "./lib/minimap";
 import { profileOverlayLayer } from "./lib/profile-overlays";
 import { resolveVertical } from "./lib/vertical";
 import { stripLayout } from "./lib/strip-layout";
@@ -47,11 +48,15 @@ interface ProfileModel {
 }
 
 export default {
-  render({
-    model,
-    el,
-    signal,
-  }: RenderProps<ProfileModel> & { signal: AbortSignal }) {
+  render({ model, el, signal: hostSignal }: RenderProps<ProfileModel>) {
+    // marimo's anywidget host predates the AFM `signal` prop and passes
+    // undefined; synthesize one so abort-based cleanup works everywhere.
+    // The returned dispose function is the part every host honors.
+    const controller = new AbortController();
+    hostSignal?.addEventListener("abort", () => controller.abort(), {
+      once: true,
+    });
+    const signal = controller.signal;
     // strips render left-to-right by chainage regardless of input order
     const cpts = [...(model.get("cpts") ?? [])].sort(
       (a, b) => a.distance - b.distance,
@@ -176,6 +181,10 @@ export default {
       });
 
     toggle.append("span").text(" equal spacing");
+
+    // overview bar between the toolbar and the scroller; shows only
+    // when the profile overflows sideways — see lib/minimap
+    const minimapHost = d3.select(el).append("div");
 
     // fixed-px svg in a scrolling host: a wide profile scrolls sideways
     // at full height (css max-width scaling would shrink the height too)
@@ -367,6 +376,11 @@ export default {
 
     applySelection();
 
+    const placeMinimap = minimap(minimapHost, scroller.node()!, {
+      stripWidth,
+      signal,
+    });
+
     // re-anchor the strips for the current spacing mode; animated when
     // the toggle flips so the strips visibly slide to their new anchors.
     // The svg width rides along: equal spacing packs into the requested
@@ -414,6 +428,7 @@ export default {
         placeOverlays(zy);
       }
       placeAnnotations(zy);
+      placeMinimap({ centers, contentWidth: curWidth });
     };
 
     placeStrips(false);
@@ -507,9 +522,6 @@ export default {
       marginRight,
       marginTop,
       marginBottom,
-      // the profile scrolls sideways in its host; a plain trackpad
-      // side-scroll carries deltaY jitter that would nudge the zoom
-      wheelRequiresModifier: true,
       onZoom: (zy1) => {
         zy = zy1;
 
@@ -535,5 +547,6 @@ export default {
       model.off("change:selected", onSelected);
       model.off("change:equalSpacing", onSpacing);
     });
+    return () => controller.abort();
   },
 };

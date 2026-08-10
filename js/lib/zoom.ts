@@ -1,10 +1,12 @@
 import * as d3 from "./d3";
 import type { AnySelection, VerticalScale } from "./types";
 
-// the shared vertical zoom gestures: wheel/drag zoom-pans the y scale,
-// shift-brush zooms to the brushed range, double-click resets with a
-// transition. onZoom receives the rescaled y on every change; the
-// caller redraws everything that hangs off the vertical scale
+// the shared vertical zoom gestures: ctrl/cmd-wheel and drag zoom-pan the
+// y scale (plain wheel scrolls the host; trackpad pinch sets ctrlKey, so
+// pinch-zoom still works), shift-brush zooms to the brushed range,
+// double-click resets with a transition. onZoom receives the rescaled y on
+// every change; the caller redraws everything that hangs off the vertical
+// scale
 export function verticalZoom(
   svg: AnySelection<SVGSVGElement>,
   {
@@ -16,7 +18,6 @@ export function verticalZoom(
     marginTop,
     marginBottom,
     onZoom,
-    wheelRequiresModifier = false,
   }: {
     y: VerticalScale;
     width: number;
@@ -26,9 +27,6 @@ export function verticalZoom(
     marginTop: number;
     marginBottom: number;
     onZoom: (zy: VerticalScale) => void;
-    // require ctrl/cmd for wheel zoom, so plain wheel scrolls the host
-    // instead (trackpad pinch sets ctrlKey, so pinch-zoom still works)
-    wheelRequiresModifier?: boolean;
   },
 ): void {
   let zy = y; // the currently zoomed vertical scale
@@ -84,10 +82,7 @@ export function verticalZoom(
         return false;
       }
       if (event.type === "wheel") {
-        if (wheelRequiresModifier) {
-          return event.ctrlKey || event.metaKey;
-        }
-        return true;
+        return event.ctrlKey || event.metaKey;
       }
       // drag-pan: shift is reserved for the brush
       return !event.shiftKey;

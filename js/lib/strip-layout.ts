@@ -6,7 +6,7 @@ export interface StripLayout {
   /** chainage extent, distances[n-1] - distances[0] */
   span: number;
   /** runs of tied chainages; a run's members dodge around its anchor */
-  groups: { dist: number; idx: number[] }[];
+  groups: { dist: number; index: number[] }[];
   /** grows past the requested width when the strips need the room */
   svgWidth: number;
   /** the svg width when equal-spaced: the requested width unless the
@@ -50,16 +50,16 @@ export function stripLayout({
   const pitch = stripWidth + stripGap;
 
   // runs of tied chainages; a run's members dodge around its anchor
-  const groups: { dist: number; idx: number[] }[] = [];
+  const groups: { dist: number; index: number[] }[] = [];
   distances.forEach((d, i) => {
     const last = groups[groups.length - 1];
     if (last && last.dist === d) {
-      last.idx.push(i);
+      last.index.push(i);
     } else {
-      groups.push({ dist: d, idx: [i] });
+      groups.push({ dist: d, index: [i] });
     }
   });
-  const halfExtent = (g: { idx: number[] }) => ((g.idx.length - 1) * pitch) / 2;
+  const halfExtent = (g: { index: number[] }) => ((g.index.length - 1) * pitch) / 2;
 
   // the px-per-m floor that keeps adjacent runs clear of each other
   let minScale = 0;
@@ -91,13 +91,13 @@ export function stripLayout({
             innerRight - halfExtent(groups[groups.length - 1]),
           ]);
 
-  const trueCenters: number[] = new Array(n);
+  const trueCenters: number[] = Array.from({ length: n });
 
   for (const g of groups) {
     const a = anchorX(g.dist);
 
-    g.idx.forEach((i, k) => {
-      trueCenters[i] = a + (k - (g.idx.length - 1) / 2) * pitch;
+    g.index.forEach((i, k) => {
+      trueCenters[i] = a + (k - (g.index.length - 1) / 2) * pitch;
     });
   }
 

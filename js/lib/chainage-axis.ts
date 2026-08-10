@@ -48,8 +48,8 @@ export function chainageAxisFor(layout: StripLayout) {
 
     selection.selectAll(".tick,.domain").remove();
 
-    const labelX = (gr: { idx: number[] }) =>
-      gr.idx.reduce((s, i) => s + centers[i], 0) / gr.idx.length;
+    const labelX = (gr: { index: number[] }) =>
+      gr.index.reduce((s, i) => s + centers[i], 0) / gr.index.length;
 
     type Group = (typeof groups)[number];
 
