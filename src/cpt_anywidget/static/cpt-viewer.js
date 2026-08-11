@@ -4533,6 +4533,7 @@ function dodgeLabels(anchors, separation, extent) {
 const labelMargin = 28;
 const labelTextX = labelMargin - 4;
 const leaderEndX = labelMargin - 3;
+const leaderMidX = (labelMargin + leaderEndX) / 2;
 const depthLabelHeight = 12;
 function layerRenderer({
   columnWidth,
@@ -4622,7 +4623,10 @@ function placeDepthLabels(column, y1) {
     g.attr("display", null);
     g.select("text").attr("y", p).text(data[i].format(data[i].layer[data[i].which]));
     const displaced = Math.abs(p - anchors[i]) > 0.5;
-    g.select("path").attr("display", displaced ? null : "none").attr("d", displaced ? `M${labelMargin},${anchors[i]}L${leaderEndX},${p}` : null);
+    g.select("path").attr("display", displaced ? null : "none").attr(
+      "d",
+      displaced ? `M${labelMargin},${anchors[i]}C${leaderMidX},${anchors[i]} ${leaderMidX},${p} ${leaderEndX},${p}` : null
+    );
   });
 }
 function annotationLayer(svg, annotations, { clipId, marginLeft, marginRight, width }) {

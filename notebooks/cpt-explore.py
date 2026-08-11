@@ -1,3 +1,15 @@
+# /// script
+# requires-python = ">=3.13"
+# dependencies = [
+#     "brodata==0.1.8",
+#     "cpt-anywidget",
+#     "marimo>=0.23.16",
+#     "pandas==3.0.5",
+# ]
+#
+# [tool.uv.sources]
+# cpt-anywidget = { path = "..", editable = true }
+# ///
 import marimo
 
 __generated_with = "0.23.13"
@@ -190,6 +202,26 @@ def _(interp_dummy, mo):
     return (seed_select,)
 
 
+@app.cell(hide_code=True)
+def _(mo):
+    mo.md("""
+    ### Navigating the chart
+
+    - **zoom** — ctrl/⌘ + scroll, or a trackpad pinch; plain scrolling
+      keeps scrolling the page
+    - **pan** — drag inside the plot while zoomed in
+    - **zoom to a range** — shift-drag a band over it
+    - **reset** — double-click the chart
+
+    The same gestures work on the profile and borehole viewers below. In
+    the editable layer column (rightmost): **drag** a boundary to move it,
+    **double-click** a layer to split it at the pointer, **⌥-click** a
+    boundary to merge the layers it separates (the upper layer wins), and
+    **click** a layer to pick its soil class from the pie.
+    """)
+    return
+
+
 @app.cell
 def _(
     CPTViewer,
@@ -372,6 +404,11 @@ def _(gt_borehole, layers_from_bhrgt, vertical_select):
 def _(mo):
     mo.md("""
     ## Length profile
+
+    The profile is wider than the notebook, so it scrolls sideways — the
+    **minimap** above it shows where you are: drag the highlighted window,
+    or click anywhere on the bar to jump there. Vertical zooming works
+    like the CPT chart (ctrl/⌘ + scroll, shift-drag, double-click reset).
     """)
     return
 
@@ -388,6 +425,10 @@ def _(ConePenetrationTest, chainage, mo, pd):
             (mo.notebook_dir().parent / "examples" / "broxml-cpt").glob("*.xml")
         )
     ]
+    # chainage() walks the coords in the order given, so sort into profile
+    # order first — filename order zigzags along this west–east line and
+    # would inflate the chainages
+    _cpts.sort(key=lambda c: float(c.deliveredLocation.x))
     _frames = []
     for _c in _cpts:
         _df = _c.conePenetrationTest.apply(pd.to_numeric, errors="coerce")
@@ -419,9 +460,11 @@ def _(
     set_selected_cpt,
     surface_levels,
 ):
-    # the two sample CPTs sit ~26 km apart, so true-scale chainage is an
-    # honest but extreme axis — the toolbar toggle switches to equal
-    # spacing. Clicking a strip syncs its name back via `selected`
+    # the four sample CPTs line up over ~330 m, so true-scale chainage is an
+    # honest axis; the toolbar toggle switches to equal spacing. The width
+    # deliberately exceeds the notebook cell: the profile scrolls sideways
+    # and the overview minimap appears above it. Clicking a strip syncs its
+    # name back via `selected`
     profile = ProfileViewer(
         profile_data,
         positions=profile_positions,
@@ -430,6 +473,7 @@ def _(
             {"levels": surface_levels, "label": "maaiveld", "color": "#8a6642"}
         ],
         height=420,
+        width=1600,
     )
 
     profile.observe(
@@ -449,8 +493,8 @@ def _(mo):
 @app.cell(hide_code=True)
 def _(get_selected_cpt, mo):
     mo.md(f"""
-    Selected strip: **{get_selected_cpt() or '—'}** — "
-        "click a strip to (de)select it.
+    Selected strip: **{get_selected_cpt() or '—'}** — click a strip to
+    (de)select it.
     """)
     return
 

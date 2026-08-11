@@ -11,6 +11,9 @@ type PlacedBand = Band & { top: number; bottom: number };
 const labelMargin = 28;
 const labelTextX = labelMargin - 4; // right edge of the depth text
 const leaderEndX = labelMargin - 3; // leaders stop just short of the text
+// both Bézier control points sit at the midpoint x, so the leader
+// leaves the boundary and meets the label horizontally (an S-curve)
+const leaderMidX = (labelMargin + leaderEndX) / 2;
 const depthLabelHeight = 12; // 10px font + breathing room: the dodge separation
 
 /** re-callable column renderer bound to a display config; layers is an
@@ -251,6 +254,11 @@ function placeDepthLabels(column: AnySelection<SVGGElement>, y1: VerticalScale):
     const displaced = Math.abs(p - anchors[i]) > 0.5;
     g.select("path")
       .attr("display", displaced ? null : "none")
-      .attr("d", displaced ? `M${labelMargin},${anchors[i]}L${leaderEndX},${p}` : null);
+      .attr(
+        "d",
+        displaced
+          ? `M${labelMargin},${anchors[i]}C${leaderMidX},${anchors[i]} ${leaderMidX},${p} ${leaderEndX},${p}`
+          : null,
+      );
   });
 }

@@ -23,6 +23,7 @@ export function dodgeLabels(
   extent?: readonly [number, number],
 ): number[] {
   const placed = Array.from({ length: anchors.length }, () => 0);
+
   if (anchors.length === 0) {
     return placed;
   }
@@ -31,10 +32,13 @@ export function dodgeLabels(
   // the whole block stays inside the extent
   const centerOf = (cluster: Cluster): number => {
     const mean = cluster.anchorSum / cluster.size;
+    
     if (!extent) {
       return mean;
     }
+
     const halfSpan = ((cluster.size - 1) * separation) / 2;
+
     return Math.max(Math.min(mean, extent[1] - halfSpan), extent[0] + halfSpan);
   };
 
@@ -57,9 +61,11 @@ export function dodgeLabels(
       const above = clusters[clusters.length - 2];
       const below = clusters[clusters.length - 1];
       const gap = firstMemberOf(below) - lastMemberOf(above);
+
       if (gap >= separation - 1e-6) {
         break;
       }
+
       above.anchorSum += below.anchorSum;
       above.size += below.size;
       clusters.pop();
@@ -68,7 +74,7 @@ export function dodgeLabels(
 
   for (const cluster of clusters) {
     const center = centerOf(cluster);
-    
+
     for (let member = 0; member < cluster.size; member++) {
       placed[cluster.firstIndex + member] =
         center + (member - (cluster.size - 1) / 2) * separation;
