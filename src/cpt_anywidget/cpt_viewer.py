@@ -1,10 +1,10 @@
 import dataclasses
-import math
 import pathlib
 
 import anywidget
 import traitlets
 
+from cpt_anywidget.intake import tidy
 from cpt_anywidget.vertical import Vertical, resolve_vertical
 
 _HERE = pathlib.Path(__file__).parent
@@ -31,63 +31,6 @@ class Channel:
         return {
             k: v for k, v in dataclasses.asdict(self).items() if v is not None
         }
-
-
-def _scrub(value):
-    """One JSON-safe sample: numpy scalars unwrapped, numeric strings
-    coerced (BRO XML sometimes delivers them), NaN/±inf → None."""
-    if hasattr(value, "item"):  # numpy scalar
-        value = value.item()
-    if isinstance(value, str):
-        value = float(value)
-    if isinstance(value, float) and not math.isfinite(value):
-        return None
-    return value
-
-
-def _columns(data):
-    """Tidy columns → the cptData dict: plain lists, JSON-safe samples.
-
-    Accepts a dict of equal-length iterables, a pandas DataFrame (both
-    expose ``.items()``), or a polars DataFrame (via
-    ``to_dict(as_series=False)``) — the notebooks this serves are
-    polars-first, so no dataframe import happens here either way.
-    Ragged columns error immediately: the front end indexes all columns
-    by the vertical sample position, so a length mismatch would silently
-    misalign every channel.
-    """
-    if not hasattr(data, "items"):  # polars DataFrame
-        data = data.to_dict(as_series=False)
-    columns = {}
-    for key, values in data.items():
-        try:
-            columns[str(key)] = [_scrub(v) for v in values]
-        except (TypeError, ValueError) as e:
-            raise ValueError(
-                f"column {key!r} holds a non-numeric sample: {e}"
-            ) from None
-    lengths = {k: len(v) for k, v in columns.items()}
-    if len(set(lengths.values())) > 1:
-        raise ValueError(f"columns differ in length: {lengths}")
-    return columns
-
-
-def _sorted_columns(columns, key, descending):
-    """Row-sort the columns by the vertical column so the first sample
-    is the topmost — the render-order contract the front end relies on.
-    Samples with a missing vertical value are dropped: they cannot be
-    placed on the axis, and the front end reads the axis domain off the
-    first and last samples.
-    """
-    if key not in columns:
-        raise ValueError(
-            f"vertical column {key!r} not in data "
-            f"(columns: {sorted(columns)})"
-        )
-    vertical = columns[key]
-    order = [i for i, v in enumerate(vertical) if v is not None]
-    order.sort(key=vertical.__getitem__, reverse=descending)
-    return {name: [vals[i] for i in order] for name, vals in columns.items()}
 
 
 class CPTViewer(anywidget.AnyWidget):
@@ -191,11 +134,12 @@ class CPTViewer(anywidget.AnyWidget):
 
         ``data`` — tidy columns: a polars or pandas DataFrame, or dict of
         equal-length lists (one row per depth sample, one column per
-        measurement). Samples are sanitized here (NaN/inf → None, numpy
-        scalars and numeric strings → float) and rows are sorted so the
-        first sample is the topmost — ascending for ``"depth"``,
-        descending for ``"nap"`` — which is the order the front end
-        renders in. Callers never hand-build the JSON-safe dict.
+        measurement), from whatever reader parsed the format. Goes
+        through :func:`~cpt_anywidget.intake.tidy`: JSON-safe samples
+        (NaN/inf → None, numpy scalars unwrapped — non-numeric samples
+        raise), rows sorted so the first sample is the topmost —
+        ascending for ``"depth"``, descending for ``"nap"`` — which is
+        the order the front end renders in.
         ``vertical`` — which column is the vertical coordinate
         (→ ``verticalKey``); must be present in ``data``. A column-name
         string, :class:`~cpt_anywidget.vertical.Vertical` binding, or
@@ -219,9 +163,7 @@ class CPTViewer(anywidget.AnyWidget):
         )
         descending = vert.up  # elevation: highest sample on top
         if data is not None:
-            kwargs["cptData"] = _sorted_columns(
-                _columns(data), vert.key, descending
-            )
+            kwargs["cptData"] = tidy(data, vert)
         if vertical is not None:
             kwargs["verticalKey"] = (
                 vertical.spec() if isinstance(vertical, Vertical) else vertical

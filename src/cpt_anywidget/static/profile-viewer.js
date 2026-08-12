@@ -4058,6 +4058,19 @@ function plotClip(svg, prefix, { x: x2, y: y2, width, height }) {
   svg.append("clipPath").attr("id", id2).append("rect").attr("x", x2).attr("y", y2).attr("width", width).attr("height", height);
   return id2;
 }
+const haloText = (text) => text.attr("stroke", "white").attr("stroke-width", 4).attr("paint-order", "stroke");
+function focusRig(svg, { marginLeft, ruleX2 }) {
+  const focus = svg.append("g").attr("display", "none").attr("pointer-events", "none");
+  const rule = focus.append("line").attr("x1", marginLeft).attr("x2", ruleX2).attr("stroke", "currentColor").attr("stroke-opacity", 0.3);
+  const readout = focus.append("text").attr("x", marginLeft - 8).attr("dy", "0.32em").attr("text-anchor", "end").attr("font-size", 12).attr("font-weight", "bold").attr("fill", "currentColor").call(haloText);
+  return {
+    focus,
+    rule,
+    readout,
+    show: (ym) => focus.attr("display", null).attr("transform", `translate(0,${ym})`),
+    hide: () => focus.attr("display", "none")
+  };
+}
 function minimap(host, scroller, { stripWidth, height = 20, signal }) {
   let centers = [];
   let contentWidth = 1;
@@ -4275,9 +4288,11 @@ function verticalZoom(svg, {
   marginRight,
   marginTop,
   marginBottom,
-  onZoom
+  placers
 }) {
   let zy = y2;
+  const placeAll = () => placers.forEach((place) => place(zy));
+  placeAll();
   const brush2 = brushY().keyModifiers(false).filter((event) => event.shiftKey).extent([
     [marginLeft, marginTop],
     // top-left
@@ -4300,7 +4315,7 @@ function verticalZoom(svg, {
   svg.append("g").call(brush2);
   function zoomed({ transform }) {
     zy = transform.rescaleY(y2);
-    onZoom(zy);
+    placeAll();
   }
   const zoom$1 = zoom().scaleExtent([1, 16]).filter((event) => {
     if (event.button) {
@@ -4323,6 +4338,7 @@ function verticalZoom(svg, {
     "dblclick",
     () => svg.transition().duration(750).call(zoom$1.transform, identity)
   );
+  return () => zy;
 }
 const profileViewer = {
   render({ model, el, signal: hostSignal }) {
@@ -4331,17 +4347,12 @@ const profileViewer = {
       once: true
     });
     const signal = controller.signal;
-    const cpts = [...model.get("cpts") ?? []].sort(
-      (a, b) => a.distance - b.distance
-    );
+    const cpts = [...model.get("cpts") ?? []].sort((a, b) => a.distance - b.distance);
     const vert = resolveVertical(model.get("verticalKey"), "nap");
     const axisLimits = model.get("axisLimits") ?? {};
     const annotations = model.get("annotations") ?? [];
     const overlays = model.get("overlays") ?? [];
-    const channel = resolveChannel(
-      model.get("channel") || "coneResistance",
-      Tableau10[0]
-    );
+    const channel = resolveChannel(model.get("channel") || "coneResistance", Tableau10[0]);
     let equal = model.get("equalSpacing") ?? false;
     const stripWidth = model.get("stripWidth") || 90;
     const width = model.get("width") || 700;
@@ -4349,11 +4360,7 @@ const profileViewer = {
     const vertOf = (c) => c.data[vert.key] ?? [];
     const valuesOf = (c) => c.data[channel.key] ?? [];
     const allVert = cpts.flatMap(vertOf).filter((v) => v != null);
-    const x2 = makeXScale(
-      cpts.flatMap(valuesOf),
-      [0, stripWidth],
-      axisLimits[channel.key]
-    );
+    const x2 = makeXScale(cpts.flatMap(valuesOf), [0, stripWidth], axisLimits[channel.key]);
     if (!cpts.length || !allVert.length || !x2) {
       select(el).append("div").text("no plottable CPT data");
       return;
@@ -4379,7 +4386,6 @@ const profileViewer = {
       [marginTop, yBottom],
       axisLimits[vert.key]
     );
-    let zy = y2;
     const n = cpts.length;
     const distances = cpts.map((c) => c.distance);
     const layout = stripLayout({
@@ -4397,10 +4403,7 @@ const profileViewer = {
     const toolbar = select(el).append("div").style("font", "12px system-ui, sans-serif").style("margin", "0 0 4px 2px");
     const toggle = toolbar.append("label").style("cursor", "pointer");
     const checkbox = toggle.append("input").attr("type", "checkbox").style("vertical-align", "-2px").property("checked", equal).on("change", (event) => {
-      model.set(
-        "equalSpacing",
-        event.currentTarget.checked
-      );
+      model.set("equalSpacing", event.currentTarget.checked);
       model.save_changes();
     });
     toggle.append("span").text(" equal spacing");
@@ -4425,12 +4428,10 @@ const profileViewer = {
       x2: curWidth - marginRight,
       height
     });
-    const gGrid = svg.append("g").call(yGrid, y2);
-    const gy = svg.append("g").call(yAxis, y2);
+    const gGrid = svg.append("g");
+    const gy = svg.append("g");
     verticalAxisTitle(svg, vert.label);
-    svg.append("text").attr("x", 0).attr("y", yBottom + 9).attr("dy", "0.71em").attr("text-anchor", "start").attr("font-size", 10).attr("font-weight", "bold").attr("fill", channel.color).text(
-      channel.unit ? `${channel.label} [${channel.unit}]` : channel.label
-    );
+    svg.append("text").attr("x", 0).attr("y", yBottom + 9).attr("dy", "0.71em").attr("text-anchor", "start").attr("font-size", 10).attr("font-weight", "bold").attr("fill", channel.color).text(channel.unit ? `${channel.label} [${channel.unit}]` : channel.label);
     const chainY = yBottom + 32;
     const gChain = svg.append("g").attr("transform", `translate(0,${chainY})`);
     const chainageAxis = chainageAxisFor(layout);
@@ -4451,21 +4452,18 @@ const profileViewer = {
       return line().defined((_, i) => values[i] != null && vertical[i] != null).x((_, i) => x2(values[i])).y((_, i) => y1(vertical[i]))(values);
     };
     const placeTraces = (y1) => stripPath.attr("d", (d) => tracePath(d, y1));
-    placeTraces(y2);
     const placeProfileOverlays = profileOverlayLayer(svg, overlays, {
       names: cpts.map((c) => c.name),
       stripWidth,
       clipId
     });
     const placeOverlays = (y1, t) => placeProfileOverlays(y1, { centers, distX }, t);
-    placeOverlays(y2);
     const placeAnnotations = annotationLayer(svg, annotations, {
       clipId,
       marginLeft,
       marginRight,
       width: () => curWidth
     });
-    placeAnnotations(y2);
     const applySelection = () => {
       const selected = model.get("selected");
       strip.select("rect.frame").attr("stroke", (d) => d.name === selected ? "currentColor" : "#bbb").attr("stroke-width", (d) => d.name === selected ? 1.5 : 1);
@@ -4476,7 +4474,7 @@ const profileViewer = {
       stripWidth,
       signal
     });
-    const placeStrips = (animate) => {
+    const placeStrips = (animate, y1) => {
       centers = equal ? layout.equalCenters : layout.trueCenters;
       distX = layout.distToX(centers);
       curWidth = equal ? equalSvgWidth : svgWidth;
@@ -4486,32 +4484,27 @@ const profileViewer = {
         height
       });
       svg.select(`#${clipId} rect`).attr("width", curWidth - marginLeft - marginRight);
-      svg.select("line.crosshair-rule").attr("x2", curWidth - marginRight);
+      rig.rule.attr("x2", curWidth - marginRight);
       const transform = (_, i) => `translate(${centers[i] - stripWidth / 2},0)`;
       if (animate) {
         const t = svg.transition().duration(600);
-        t.attr("width", curWidth).attr(
-          "viewBox",
-          [0, 0, curWidth, height].join(",")
-        );
+        t.attr("width", curWidth).attr("viewBox", [0, 0, curWidth, height].join(","));
         strip.transition(t).attr("transform", transform);
         gGrid.selectAll("line").transition(t).attr("x2", curWidth - marginRight);
         gChain.transition(t).call(chainageAxis, { equal, centers });
-        placeOverlays(zy, t);
+        placeOverlays(y1, t);
       } else {
         svg.attr("width", curWidth).attr("viewBox", [0, 0, curWidth, height].join(","));
         strip.attr("transform", transform);
-        gGrid.call(yGrid, zy);
+        gGrid.call(yGrid, y1);
         gChain.call(chainageAxis, { equal, centers });
-        placeOverlays(zy);
+        placeOverlays(y1);
       }
-      placeAnnotations(zy);
+      placeAnnotations(y1);
       placeMinimap({ centers, contentWidth: curWidth });
     };
-    placeStrips(false);
-    const focus = svg.append("g").attr("display", "none").attr("pointer-events", "none");
-    focus.append("line").attr("class", "crosshair-rule").attr("x1", marginLeft).attr("x2", curWidth - marginRight).attr("stroke", "currentColor").attr("stroke-opacity", 0.3);
-    const readout = focus.append("text").attr("x", marginLeft - 8).attr("dy", "0.32em").attr("text-anchor", "end").attr("font-size", 12).attr("font-weight", "bold").attr("fill", "currentColor").attr("stroke", "white").attr("stroke-width", 4).attr("paint-order", "stroke");
+    const rig = focusRig(svg, { marginLeft, ruleX2: curWidth - marginRight });
+    placeStrips(false, y2);
     const formatVertical = format(vert.format);
     const stripIndexAt = (px) => {
       const i = centers.findIndex((c) => Math.abs(px - c) <= stripWidth / 2);
@@ -4520,19 +4513,16 @@ const profileViewer = {
     svg.on("pointerenter pointermove", (event) => {
       const [px, py] = pointer(event);
       const inPlot = py >= marginTop && py <= yBottom && px >= marginLeft && px <= curWidth - marginRight;
-      svg.style(
-        "cursor",
-        () => inPlot && stripIndexAt(px) != null ? "pointer" : null
-      );
+      svg.style("cursor", () => inPlot && stripIndexAt(px) != null ? "pointer" : null);
       if (!inPlot) {
-        focus.attr("display", "none");
+        rig.hide();
         return;
       }
-      focus.attr("display", null).attr("transform", `translate(0,${py})`);
-      readout.text(`${formatVertical(zy.invert(py))} m`);
+      rig.show(py);
+      rig.readout.text(`${formatVertical(current().invert(py))} m`);
     });
     svg.on("pointerleave", () => {
-      focus.attr("display", "none");
+      rig.hide();
       svg.style("cursor", null);
     });
     svg.on("click", (event) => {
@@ -4548,7 +4538,7 @@ const profileViewer = {
       model.set("selected", model.get("selected") === name ? "" : name);
       model.save_changes();
     });
-    verticalZoom(svg, {
+    const current = verticalZoom(svg, {
       y: y2,
       width: svgWidth,
       height,
@@ -4556,20 +4546,19 @@ const profileViewer = {
       marginRight,
       marginTop,
       marginBottom,
-      onZoom: (zy1) => {
-        zy = zy1;
-        gy.call(yAxis, zy);
-        gGrid.call(yGrid, zy);
-        placeTraces(zy);
-        placeOverlays(zy);
-        placeAnnotations(zy);
-      }
+      placers: [
+        (y1) => gy.call(yAxis, y1),
+        (y1) => gGrid.call(yGrid, y1),
+        placeTraces,
+        placeOverlays,
+        placeAnnotations
+      ]
     });
     const onSelected = () => applySelection();
     const onSpacing = () => {
       equal = model.get("equalSpacing") ?? false;
       checkbox.property("checked", equal);
-      placeStrips(true);
+      placeStrips(true, current());
     };
     model.on("change:selected", onSelected);
     model.on("change:equalSpacing", onSpacing);

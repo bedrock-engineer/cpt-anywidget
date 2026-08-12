@@ -24,3 +24,11 @@
   stroke: #333;
   stroke-width: 2;
 }
+
+/* the wedge armed by the drag gesture: release commits it */
+.soil-pie .slice.armed path {
+  filter: brightness(1.12);
+  transform: scale(1.05);
+  transform-box: fill-box;
+  transform-origin: center;
+}

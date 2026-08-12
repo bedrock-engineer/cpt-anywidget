@@ -1,12 +1,13 @@
 import * as d3 from "./d3";
-import type { AnySelection, VerticalScale } from "./types";
+import type { AnySelection, Placer, VerticalScale } from "./types";
 
 // the shared vertical zoom gestures: ctrl/cmd-wheel and drag zoom-pan the
 // y scale (plain wheel scrolls the host; trackpad pinch sets ctrlKey, so
 // pinch-zoom still works), shift-brush zooms to the brushed range,
-// double-click resets with a transition. onZoom receives the rescaled y on
-// every change; the caller redraws everything that hangs off the vertical
-// scale
+// double-click resets with a transition. This is the zoom drive: it owns
+// the current (zoomed) scale, places every placer once at setup and again
+// on every change, and returns a getter for the current scale — event
+// handlers that hit-test outside the zoom loop read it live
 export function verticalZoom(
   svg: AnySelection<SVGSVGElement>,
   {
@@ -17,7 +18,7 @@ export function verticalZoom(
     marginRight,
     marginTop,
     marginBottom,
-    onZoom,
+    placers,
   }: {
     y: VerticalScale;
     width: number;
@@ -26,10 +27,15 @@ export function verticalZoom(
     marginRight: number;
     marginTop: number;
     marginBottom: number;
-    onZoom: (zy: VerticalScale) => void;
+    /** everything that hangs off the vertical scale, in paint order */
+    placers: Placer[];
   },
-): void {
+): () => VerticalScale {
   let zy = y; // the currently zoomed vertical scale
+
+  const placeAll = () => placers.forEach((place) => place(zy));
+
+  placeAll(); // the initial placement pass — callers never place by hand
 
   // Brushing
   const brush = d3
@@ -57,12 +63,12 @@ export function verticalZoom(
     const newHeight = zp1 - zp0;
     const k = (height - marginBottom - marginTop) / newHeight;
 
-    const z = d3.zoomIdentity
-      .translate(0, marginTop)
-      .scale(k)
-      .translate(0, -zp0);
+    const z = d3.zoomIdentity.translate(0, marginTop).scale(k).translate(0, -zp0);
 
-    svg.transition().duration(750).call(zoom.transform as any, z);
+    svg
+      .transition()
+      .duration(750)
+      .call(zoom.transform as any, z);
 
     d3.select(this).call(brush.move, null); // clear brush rect
   }
@@ -71,7 +77,7 @@ export function verticalZoom(
 
   function zoomed({ transform }: d3.D3ZoomEvent<SVGSVGElement, unknown>) {
     zy = transform.rescaleY(y);
-    onZoom(zy);
+    placeAll();
   }
 
   const zoom = d3
@@ -107,4 +113,6 @@ export function verticalZoom(
         .duration(750)
         .call(zoom.transform as any, d3.zoomIdentity),
     );
+
+  return () => zy;
 }

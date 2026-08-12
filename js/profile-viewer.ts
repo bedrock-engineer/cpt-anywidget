@@ -3,13 +3,8 @@ import * as d3 from "./lib/d3";
 import { makeXScale, resolveChannel } from "./lib/channels";
 import { annotationLayer } from "./lib/annotations";
 import { chainageAxisFor } from "./lib/chainage-axis";
-import {
-  makeVerticalScale,
-  plotClip,
-  verticalAxisTitle,
-  yAxisFor,
-  yGridFor,
-} from "./lib/frame";
+import { makeVerticalScale, plotClip, verticalAxisTitle, yAxisFor, yGridFor } from "./lib/frame";
+import { focusRig } from "./lib/focus-rig";
 import { minimap } from "./lib/minimap";
 import { profileOverlayLayer } from "./lib/profile-overlays";
 import { resolveVertical } from "./lib/vertical";
@@ -58,9 +53,7 @@ export default {
     });
     const signal = controller.signal;
     // strips render left-to-right by chainage regardless of input order
-    const cpts = [...(model.get("cpts") ?? [])].sort(
-      (a, b) => a.distance - b.distance,
-    );
+    const cpts = [...(model.get("cpts") ?? [])].sort((a, b) => a.distance - b.distance);
 
     const vert = resolveVertical(model.get("verticalKey"), "nap");
     const axisLimits = model.get("axisLimits") ?? {};
@@ -70,10 +63,7 @@ export default {
     // every strip plots the same single channel (qc by default); the
     // spec/defaults contract matches the interpretation widget's
     // channels entries
-    const channel = resolveChannel(
-      model.get("channel") || "coneResistance",
-      d3.schemeTableau10[0],
-    );
+    const channel = resolveChannel(model.get("channel") || "coneResistance", d3.schemeTableau10[0]);
 
     let equal = model.get("equalSpacing") ?? false;
 
@@ -84,17 +74,11 @@ export default {
     const vertOf = (c: ProfileCpt) => c.data[vert.key] ?? [];
     const valuesOf = (c: ProfileCpt) => c.data[channel.key] ?? [];
 
-    const allVert = cpts
-      .flatMap(vertOf)
-      .filter((v): v is number => v != null);
+    const allVert = cpts.flatMap(vertOf).filter((v): v is number => v != null);
 
     // one shared channel scale across every strip, in strip-local px —
     // comparing strips is the point, so their x domains must agree
-    const x = makeXScale(
-      cpts.flatMap(valuesOf),
-      [0, stripWidth],
-      axisLimits[channel.key],
-    );
+    const x = makeXScale(cpts.flatMap(valuesOf), [0, stripWidth], axisLimits[channel.key]);
 
     if (!cpts.length || !allVert.length || !x) {
       d3.select(el).append("div").text("no plottable CPT data");
@@ -112,9 +96,7 @@ export default {
     // the first sample renders at the top (the facade sorts elevations
     // descending); the spec's up only breaks the tie when no strip has
     // two placeable samples
-    const ordered = cpts
-      .map(vertOf)
-      .find((v) => v.filter((s) => s != null).length >= 2);
+    const ordered = cpts.map(vertOf).find((v) => v.filter((s) => s != null).length >= 2);
     let descending = vert.up;
     if (ordered) {
       const first = ordered.find((s) => s != null)!;
@@ -132,8 +114,6 @@ export default {
       [marginTop, yBottom],
       axisLimits[vert.key],
     );
-
-    let zy = y; // the currently zoomed vertical scale
 
     // the strip anchor geometry: tie-run dodging, svg growth, both
     // spacing modes' center arrays — see lib/strip-layout
@@ -173,10 +153,7 @@ export default {
       .style("vertical-align", "-2px")
       .property("checked", equal)
       .on("change", (event: Event) => {
-        model.set(
-          "equalSpacing",
-          (event.currentTarget as HTMLInputElement).checked,
-        );
+        model.set("equalSpacing", (event.currentTarget as HTMLInputElement).checked);
         model.save_changes();
       });
 
@@ -231,8 +208,9 @@ export default {
       height,
     });
 
-    const gGrid = svg.append("g").call(yGrid, y);
-    const gy = svg.append("g").call(yAxis, y);
+    // placed by the zoom drive (and the grid by placeStrips too)
+    const gGrid = svg.append("g");
+    const gy = svg.append("g");
 
     verticalAxisTitle(svg, vert.label);
 
@@ -248,16 +226,12 @@ export default {
       .attr("font-size", 10)
       .attr("font-weight", "bold")
       .attr("fill", channel.color)
-      .text(
-        channel.unit ? `${channel.label} [${channel.unit}]` : channel.label,
-      );
+      .text(channel.unit ? `${channel.label} [${channel.unit}]` : channel.label);
 
     // chainage axis under the strip axes: honest meters in true scale;
     // equal-spaced mode instead ticks each strip anchor with its chainage
     const chainY = yBottom + 32;
-    const gChain = svg
-      .append("g")
-      .attr("transform", `translate(0,${chainY})`);
+    const gChain = svg.append("g").attr("transform", `translate(0,${chainY})`);
 
     // dual-mode: honest meter axis in true scale, per-dijkpaal labels
     // when equal-spaced; see lib/chainage-axis
@@ -332,10 +306,7 @@ export default {
         .y((_, i) => y1(vertical[i]!))(values);
     };
 
-    const placeTraces = (y1: VerticalScale) =>
-      stripPath.attr("d", (d) => tracePath(d, y1));
-
-    placeTraces(y);
+    const placeTraces = (y1: VerticalScale) => stripPath.attr("d", (d) => tracePath(d, y1));
 
     // profile-space overlays (groundwater level, surface line, ...) span
     // the strips in (chainage, vertical) coordinates; see
@@ -347,12 +318,8 @@ export default {
       clipId,
     });
 
-    const placeOverlays = (
-      y1: VerticalScale,
-      t?: d3.Transition<any, any, any, any>,
-    ) => placeProfileOverlays(y1, { centers, distX }, t);
-
-    placeOverlays(y);
+    const placeOverlays = (y1: VerticalScale, t?: d3.Transition<any, any, any, any>) =>
+      placeProfileOverlays(y1, { centers, distX }, t);
 
     const placeAnnotations = annotationLayer(svg, annotations, {
       clipId,
@@ -360,8 +327,6 @@ export default {
       marginRight,
       width: () => curWidth,
     });
-
-    placeAnnotations(y);
 
     const applySelection = () => {
       const selected = model.get("selected");
@@ -384,8 +349,9 @@ export default {
     // re-anchor the strips for the current spacing mode; animated when
     // the toggle flips so the strips visibly slide to their new anchors.
     // The svg width rides along: equal spacing packs into the requested
-    // width, true scale gets the room the chainages need
-    const placeStrips = (animate: boolean) => {
+    // width, true scale gets the room the chainages need. Not a Placer —
+    // spacing, not zoom, drives it — so the scale comes in explicitly
+    const placeStrips = (animate: boolean, y1: VerticalScale) => {
       centers = equal ? layout.equalCenters : layout.trueCenters;
       distX = layout.distToX(centers);
       curWidth = equal ? equalSvgWidth : svgWidth;
@@ -395,71 +361,40 @@ export default {
         x2: curWidth - marginRight,
         height,
       });
-      svg
-        .select(`#${clipId} rect`)
-        .attr("width", curWidth - marginLeft - marginRight);
-      svg.select("line.crosshair-rule").attr("x2", curWidth - marginRight);
+      svg.select(`#${clipId} rect`).attr("width", curWidth - marginLeft - marginRight);
+      rig.rule.attr("x2", curWidth - marginRight);
 
-      const transform = (_: ProfileCpt, i: number) =>
-        `translate(${centers[i] - stripWidth / 2},0)`;
+      const transform = (_: ProfileCpt, i: number) => `translate(${centers[i] - stripWidth / 2},0)`;
 
       if (animate) {
-        const t: d3.Transition<any, any, any, any> = svg
-          .transition()
-          .duration(600);
-        t.attr("width", curWidth).attr(
-          "viewBox",
-          [0, 0, curWidth, height].join(","),
-        );
+        const t: d3.Transition<any, any, any, any> = svg.transition().duration(600);
+        t.attr("width", curWidth).attr("viewBox", [0, 0, curWidth, height].join(","));
         strip.transition(t).attr("transform", transform);
         gGrid
           .selectAll("line")
           .transition(t as any)
           .attr("x2", curWidth - marginRight);
         gChain.transition(t).call(chainageAxis as any, { equal, centers });
-        placeOverlays(zy, t);
+        placeOverlays(y1, t);
       } else {
-        svg
-          .attr("width", curWidth)
-          .attr("viewBox", [0, 0, curWidth, height].join(","));
+        svg.attr("width", curWidth).attr("viewBox", [0, 0, curWidth, height].join(","));
         strip.attr("transform", transform);
-        gGrid.call(yGrid, zy);
+        gGrid.call(yGrid, y1);
         gChain.call(chainageAxis, { equal, centers });
-        placeOverlays(zy);
+        placeOverlays(y1);
       }
-      placeAnnotations(zy);
+      placeAnnotations(y1);
       placeMinimap({ centers, contentWidth: curWidth });
     };
 
-    placeStrips(false);
-
     // crosshair: a rule across the whole profile with the vertical value
     // on the axis — the shared axis is the comparison tool, so the
-    // readout spans strips instead of reading one channel value
-    const focus = svg
-      .append("g")
-      .attr("display", "none")
-      .attr("pointer-events", "none");
+    // readout spans strips instead of reading one channel value. Built
+    // before the first placeStrips call, which retargets the rule's x2
+    // whenever the spacing mode changes the width
+    const rig = focusRig(svg, { marginLeft, ruleX2: curWidth - marginRight });
 
-    focus
-      .append("line")
-      .attr("class", "crosshair-rule") // placeStrips retargets its x2
-      .attr("x1", marginLeft)
-      .attr("x2", curWidth - marginRight)
-      .attr("stroke", "currentColor")
-      .attr("stroke-opacity", 0.3);
-
-    const readout = focus
-      .append("text")
-      .attr("x", marginLeft - 8)
-      .attr("dy", "0.32em")
-      .attr("text-anchor", "end")
-      .attr("font-size", 12)
-      .attr("font-weight", "bold")
-      .attr("fill", "currentColor")
-      .attr("stroke", "white")
-      .attr("stroke-width", 4)
-      .attr("paint-order", "stroke");
+    placeStrips(false, y);
 
     // format from the resolved spec: signed for NAP so values near the
     // datum read unambiguously
@@ -473,26 +408,21 @@ export default {
     svg.on("pointerenter pointermove", (event: PointerEvent) => {
       const [px, py] = d3.pointer(event);
       const inPlot =
-        py >= marginTop &&
-        py <= yBottom &&
-        px >= marginLeft &&
-        px <= curWidth - marginRight;
+        py >= marginTop && py <= yBottom && px >= marginLeft && px <= curWidth - marginRight;
 
-      svg.style("cursor", () =>
-        inPlot && stripIndexAt(px) != null ? "pointer" : null,
-      );
+      svg.style("cursor", () => (inPlot && stripIndexAt(px) != null ? "pointer" : null));
 
       if (!inPlot) {
-        focus.attr("display", "none");
+        rig.hide();
         return;
       }
 
-      focus.attr("display", null).attr("transform", `translate(0,${py})`);
-      readout.text(`${formatVertical(zy.invert(py))} m`);
+      rig.show(py);
+      rig.readout.text(`${formatVertical(current().invert(py))} m`);
     });
 
     svg.on("pointerleave", () => {
-      focus.attr("display", "none");
+      rig.hide();
       svg.style("cursor", null);
     });
 
@@ -514,7 +444,11 @@ export default {
       model.save_changes();
     });
 
-    verticalZoom(svg, {
+    // last on purpose: the zoom drive appends the brush overlay, which
+    // must stay on top. It runs the initial placement pass and re-places
+    // on every zoom. The grid wrapper reads the live yGrid binding —
+    // placeStrips rebuilds it when the spacing mode changes the width
+    const current = verticalZoom(svg, {
       y,
       width: svgWidth,
       height,
@@ -522,23 +456,20 @@ export default {
       marginRight,
       marginTop,
       marginBottom,
-      onZoom: (zy1) => {
-        zy = zy1;
-
-        gy.call(yAxis, zy);
-        gGrid.call(yGrid, zy);
-
-        placeTraces(zy);
-        placeOverlays(zy);
-        placeAnnotations(zy);
-      },
+      placers: [
+        (y1) => gy.call(yAxis, y1),
+        (y1) => gGrid.call(yGrid, y1),
+        placeTraces,
+        placeOverlays,
+        placeAnnotations,
+      ],
     });
 
     const onSelected = () => applySelection();
     const onSpacing = () => {
       equal = model.get("equalSpacing") ?? false;
       checkbox.property("checked", equal);
-      placeStrips(true);
+      placeStrips(true, current());
     };
 
     model.on("change:selected", onSelected);

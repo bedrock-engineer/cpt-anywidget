@@ -1,20 +1,10 @@
 import type { RenderProps } from "@anywidget/types";
 import { annotationLayer } from "./lib/annotations";
 import * as d3 from "./lib/d3";
-import {
-  makeVerticalScale,
-  plotClip,
-  verticalAxisTitle,
-  yAxisFor,
-} from "./lib/frame";
+import { focusRig, haloText } from "./lib/focus-rig";
+import { makeVerticalScale, plotClip, verticalAxisTitle, yAxisFor } from "./lib/frame";
 import { hatchDefs } from "./lib/hatch";
-import type {
-  Annotation,
-  AxisLimits,
-  Band,
-  Layer,
-  VerticalSpec,
-} from "./lib/types";
+import type { Annotation, AxisLimits, Band, Layer, VerticalSpec } from "./lib/types";
 import { resolveVertical } from "./lib/vertical";
 import { verticalZoom } from "./lib/zoom";
 
@@ -98,7 +88,8 @@ export default {
 
     const hatchId = hatchDefs(svg, usedHatches);
 
-    const gy = svg.append("g").call(yAxis, y);
+    // placed by the zoom drive, like everything else on the vertical scale
+    const gy = svg.append("g");
 
     verticalAxisTitle(svg, vert.label);
 
@@ -110,12 +101,8 @@ export default {
     );
 
     // horizontal extent is static (only y zooms), shared by both joins
-    const bandX = (
-      rect: d3.Selection<SVGRectElement, LayerBand, SVGGElement, unknown>,
-    ) =>
-      rect
-        .attr("x", (b) => x(b.x1))
-        .attr("width", (b) => x(b.x2) - x(b.x1));
+    const bandX = (rect: d3.Selection<SVGRectElement, LayerBand, SVGGElement, unknown>) =>
+      rect.attr("x", (b) => x(b.x1)).attr("width", (b) => x(b.x2) - x(b.x1));
 
     const gLayers = svg.append("g").attr("clip-path", `url(#${clipId})`);
 
@@ -156,19 +143,13 @@ export default {
       for (const rect of [bandRect, hatchRect]) {
         rect
           .attr("y", (b) => Math.min(y1(b.layer.top), y1(b.layer.bottom)))
-          .attr("height", (b) =>
-            Math.abs(y1(b.layer.bottom) - y1(b.layer.top)),
-          );
+          .attr("height", (b) => Math.abs(y1(b.layer.bottom) - y1(b.layer.top)));
       }
 
       soilLabel
         .attr("y", (l) => (y1(l.top) + y1(l.bottom)) / 2)
-        .attr("display", (l) =>
-          Math.abs(y1(l.bottom) - y1(l.top)) >= 14 ? null : "none",
-        );
+        .attr("display", (l) => (Math.abs(y1(l.bottom) - y1(l.top)) >= 14 ? null : "none"));
     };
-
-    placeLayers(y);
 
     const placeAnnotations = annotationLayer(svg, annotations, {
       clipId,
@@ -177,47 +158,22 @@ export default {
       width,
     });
 
-    placeAnnotations(y);
-
     // format from the resolved spec: signed for NAP so values near the
     // datum read unambiguously
     const formatVertical = d3.format(vert.format);
 
-    // crosshair at the hovered elevation: a rule across the plot, the
-    // vertical value on the axis, and the hovered layer's soil name
-    const focus = svg.append("g").attr("display", "none");
+    // crosshair at the hovered elevation: the shared skin from the rig,
+    // plus this log's own extra readout — the hovered layer's soil name
+    const rig = focusRig(svg, { marginLeft, ruleX2: width - marginRight });
 
-    focus
-      .append("line")
-      .attr("x1", marginLeft)
-      .attr("x2", width - marginRight)
-      .attr("stroke", "currentColor")
-      .attr("stroke-opacity", 0.3);
-
-    const verticalReadout = focus
-      .append("text")
-      .attr("x", marginLeft - 8)
-      .attr("dy", "0.32em")
-      .attr("text-anchor", "end")
-      .attr("font-size", 12)
-      .attr("font-weight", "bold")
-      .attr("fill", "currentColor")
-      .attr("stroke", "white")
-      .attr("stroke-width", 4)
-      .attr("paint-order", "stroke");
-
-    const layerReadout = focus
+    const layerReadout = rig.focus
       .append("text")
       .attr("x", width - marginRight - 6)
       .attr("y", -6)
       .attr("text-anchor", "end")
       .attr("font-size", 12)
       .attr("fill", "#333")
-      .attr("stroke", "white")
-      .attr("stroke-width", 4)
-      .attr("paint-order", "stroke");
-
-    let zy = y; // the currently zoomed vertical scale
+      .call(haloText);
 
     // bisect matching the layer direction: depth tops ascend, nap tops
     // descend; the candidate is the last layer starting at or above the
@@ -229,34 +185,33 @@ export default {
 
     const layerAt = (value: number) => {
       const l = layers[bisectTop(layers, value) - 1];
-      return l &&
-        value >= Math.min(l.top, l.bottom) &&
-        value <= Math.max(l.top, l.bottom)
+      return l && value >= Math.min(l.top, l.bottom) && value <= Math.max(l.top, l.bottom)
         ? l
         : undefined;
     };
 
     function pointermoved(event: PointerEvent) {
       const [, ym] = d3.pointer(event);
-      const value = zy.invert(ym);
+      const value = current().invert(ym);
       const layer = layerAt(value);
 
       if (!layer) {
-        focus.attr("display", "none");
+        rig.hide();
         return;
       }
 
-      focus.attr("display", null).attr("transform", `translate(0,${ym})`);
+      rig.show(ym);
 
-      verticalReadout.text(`${formatVertical(value)} m`);
+      rig.readout.text(`${formatVertical(value)} m`);
       layerReadout.text(layer.label ?? "");
     }
 
-    svg
-      .on("pointerenter pointermove", pointermoved)
-      .on("pointerleave", () => focus.attr("display", "none"));
+    svg.on("pointerenter pointermove", pointermoved).on("pointerleave", rig.hide);
 
-    verticalZoom(svg, {
+    // last on purpose: the zoom drive appends the brush overlay, which
+    // must stay on top. It runs the initial placement pass and re-places
+    // on every zoom
+    const current = verticalZoom(svg, {
       y,
       width,
       height,
@@ -264,13 +219,7 @@ export default {
       marginRight,
       marginTop,
       marginBottom,
-      onZoom: (zy1) => {
-        zy = zy1;
-
-        gy.call(yAxis, zy);
-        placeLayers(zy);
-        placeAnnotations(zy);
-      },
+      placers: [(y1) => gy.call(yAxis, y1), placeLayers, placeAnnotations],
     });
   },
 };

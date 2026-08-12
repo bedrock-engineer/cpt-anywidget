@@ -1,12 +1,6 @@
 import { buildSeries, lineFor } from "./channels";
 import * as d3 from "./d3";
-import {
-  makeVerticalScale,
-  plotClip,
-  verticalAxisTitle,
-  yAxisFor,
-  yGridFor,
-} from "./frame";
+import { makeVerticalScale, plotClip, verticalAxisTitle, yAxisFor, yGridFor } from "./frame";
 import type {
   AnySelection,
   AxisLimits,
@@ -24,7 +18,7 @@ import type { ResolvedVertical } from "./vertical";
 // plot edge, both gridline layers, the left vertical axis with its
 // title, and the curve paths. Draws once into the given svg; everything
 // downstream features hang onto (scale, margins, clip, series) is
-// returned, and update() redraws the chart's own parts against a zoomed
+// returned, and place() redraws the chart's own parts against a zoomed
 // scale so the caller can compose it with its own placers
 
 export interface CptChart {
@@ -39,7 +33,7 @@ export interface CptChart {
   marginTop: number;
   marginBottom: number;
   /** redraw the y axis, gridlines and curves against a (zoomed) scale */
-  update: Placer;
+  place: Placer;
 }
 
 interface CptChartProps {
@@ -102,21 +96,14 @@ export function cptChart(
   const xAxis = (g: AnySelection<SVGGElement>, s: Series, slotY: number) =>
     g
       .attr("transform", `translate(0,${slotY})`)
-      .call(
-        (s.side === "bottom" ? d3.axisBottom : d3.axisTop)(s.x).ticks(
-          width / 100,
-        ),
-      )
+      .call((s.side === "bottom" ? d3.axisBottom : d3.axisTop)(s.x).ticks(width / 100))
       .call((g) => g.selectAll("text").attr("fill", s.color))
       .call((g) => g.selectAll("line").attr("stroke", s.color))
       .call((g) => g.select(".domain").attr("stroke", s.color))
       .call((g) =>
         g
           .append("text")
-          .attr(
-            "x",
-            s.side === "bottom" ? margin.left - 16 : width - margin.right + 16,
-          )
+          .attr("x", s.side === "bottom" ? margin.left - 16 : width - margin.right + 16)
           // on the tick-number row, not the axis line — the innermost
           // axis line coincides with the plot edge where the outermost
           // y-axis tick label sits
@@ -166,9 +153,7 @@ export function cptChart(
     svg.append("g").call(xAxis, s, height - marginBottom + axisSlot * i),
   );
 
-  topSeries.forEach((s, i) =>
-    svg.append("g").call(xAxis, s, marginTop - axisSlot * i),
-  );
+  topSeries.forEach((s, i) => svg.append("g").call(xAxis, s, marginTop - axisSlot * i));
 
   const gy = svg.append("g").call(yAxis, y);
 
@@ -185,7 +170,7 @@ export function cptChart(
     .attr("stroke-width", 1)
     .attr("d", (s) => lineFor(s, vertical, y));
 
-  const update: Placer = (y1) => {
+  const place: Placer = (y1) => {
     gy.call(yAxis, y1);
     gGrid.call(yGrid, y1);
     seriesPaths.attr("d", (s) => lineFor(s, vertical, y1));
@@ -198,6 +183,6 @@ export function cptChart(
     clipId,
     marginTop,
     marginBottom,
-    update,
+    place,
   };
 }

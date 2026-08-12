@@ -1,0 +1,118 @@
+"""Data intake: contract enforcement between whatever parsed your CPT
+data and the widgets' wire format.
+
+The package never parses formats, converts units, or renames columns —
+readers (brodata, pygef, python-ags4, a csv, ...) stay upstream, and
+:class:`~cpt_anywidget.cpt_viewer.Channel` /
+:class:`~cpt_anywidget.vertical.Vertical` bindings adapt the chart to
+whatever the columns are called. What *must* happen here, because the
+front end cannot recover from it, is the bare minimum:
+
+- JSON-safety: NaN/inf → None (NaN is invalid JSON and kills the trait
+  sync), numpy scalars unwrapped. Nothing else is coerced — a
+  non-numeric sample is the reader's bug and raises immediately.
+- equal-length validation: every column is indexed by the vertical
+  sample position, so a ragged dict would silently misalign channels.
+- render order: rows sorted so the first sample is the topmost, the
+  order the front end renders in; samples without a vertical value
+  cannot be placed and are dropped.
+
+See docs/adr/0002-intake-is-contract-enforcement-only.md.
+"""
+
+import math
+
+from cpt_anywidget.vertical import resolve_vertical
+
+
+def _json_safe(key, value):
+    """One JSON-safe sample; anything non-numeric raises with the
+    column and offending value named."""
+    if hasattr(value, "item"):  # numpy scalar
+        value = value.item()
+    if value is None:
+        return None
+    if isinstance(value, (int, float)):
+        if isinstance(value, float) and not math.isfinite(value):
+            return None
+        return value
+    raise ValueError(
+        f"column {key!r} holds a non-numeric sample: {value!r} "
+        f"({type(value).__name__}) — coerce numerics upstream, e.g. "
+        "pd.to_numeric(...) or .cast(pl.Float64)"
+    )
+
+
+def _as_lists(data):
+    """DataFrame or mapping → {name: list}, column names stringified.
+
+    A dict of equal-length iterables and a pandas DataFrame both expose
+    ``.items()``; a polars DataFrame goes via ``to_dict(as_series=False)``
+    — no dataframe import happens here either way.
+    """
+    if not hasattr(data, "items"):  # polars DataFrame
+        data = data.to_dict(as_series=False)
+    return {str(k): list(v) for k, v in data.items()}
+
+
+def tidy(data, vertical="depth"):
+    """Tidy columns → the wire-ready ``cptData`` dict.
+
+    ``data`` — a polars or pandas DataFrame, or dict of equal-length
+    columns: one row per depth sample, one column per measurement,
+    whatever the columns are called.
+    ``vertical`` — the column that places rows on the vertical axis: a
+    key string, :class:`~cpt_anywidget.vertical.Vertical` binding, or
+    spec dict. Rows sort ascending for depth-like coordinates and
+    descending for positive-up ones (``"nap"``, or ``up=True``), so the
+    first sample is the topmost either way.
+
+    Returns exactly what the widget will receive: plain lists, JSON-safe
+    samples, rows in render order. Call it directly to inspect or test
+    that; the viewer constructors call it for you.
+    """
+    vert = resolve_vertical(vertical)
+    columns = _as_lists(data)
+    lengths = {k: len(v) for k, v in columns.items()}
+    if len(set(lengths.values())) > 1:
+        raise ValueError(f"columns differ in length: {lengths}")
+    columns = {k: [_json_safe(k, s) for s in v] for k, v in columns.items()}
+    if vert.key not in columns:
+        raise ValueError(
+            f"vertical column {vert.key!r} not in data "
+            f"(columns: {sorted(columns)})"
+        )
+    values = columns[vert.key]
+    order = [i for i, v in enumerate(values) if v is not None]
+    order.sort(key=values.__getitem__, reverse=vert.up)
+    return {name: [vals[i] for i in order] for name, vals in columns.items()}
+
+
+def split(data, name="name"):
+    """Tidy *long* columns → {name: columns}, one group per CPT.
+
+    ``data`` — every CPT's samples stacked in one DataFrame or dict of
+    columns, with the ``name`` column telling them apart. Groups keep
+    first-appearance order and drop the name column; each group is raw —
+    feed it to :func:`tidy` (the :class:`ProfileViewer` constructor
+    composes exactly that).
+    """
+    columns = _as_lists(data)
+    if name not in columns:
+        raise ValueError(
+            f"name column {name!r} not in data (columns: {sorted(columns)})"
+        )
+    names = [str(n) for n in columns.pop(name)]
+    lengths = {k: len(v) for k, v in columns.items()}
+    if any(n != len(names) for n in lengths.values()):
+        raise ValueError(
+            f"columns differ in length from the name column "
+            f"({len(names)} rows): {lengths}"
+        )
+    rows = {}
+    for i, n in enumerate(names):
+        rows.setdefault(n, []).append(i)
+    return {
+        n: {k: [v[i] for i in index] for k, v in columns.items()}
+        for n, index in rows.items()
+    }

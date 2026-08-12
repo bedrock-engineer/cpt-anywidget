@@ -1,13 +1,9 @@
 import * as d3 from "./d3";
+import { assignClass, dragBoundary, merge, splitAt } from "./layer-edits";
 import { placeLayerColumn } from "./layers";
+import { pieAngles, wedgeAt } from "./pie-menu";
 import type { LayerColumn } from "./layers";
-import type {
-  AnySelection,
-  Layer,
-  Placer,
-  SoilClass,
-  VerticalScale,
-} from "./types";
+import type { AnySelection, Layer, Placer, SoilClass, VerticalScale } from "./types";
 
 interface EditableColumn {
   model: {
@@ -28,11 +24,16 @@ interface EditableColumn {
 
 // the manually editable layer column: drag a boundary to move it,
 // double-click a layer to split it there, option-click a boundary to
-// merge (the upper layer wins), click a layer to pick its class from
-// the soil-class pie. Mutates editedLayers in place and syncs copies
-// back through the model. Returns the handle placer for the zoom loop —
-// layer-rect placement rides the caller's shared column placer.
-// currentY() returns the live (zoomed) scale
+// merge (the upper layer wins), press a layer and drag toward a wedge
+// to pick its class from the soil-class pie (release commits; a
+// dead-zone release keeps the pie open for click-to-pick). The edit
+// rules live in layer-edits.ts as pure operations; this module is the
+// gesture adapter: it translates pointer events into operations, swaps
+// in the returned stack when the reference changed (rebinding the
+// index-keyed joins), and syncs copies back through the model.
+// Returns the handle placer for the zoom loop — layer-rect placement
+// rides the caller's shared column placer. currentY() returns the
+// live (zoomed) scale
 export function editableColumn({
   model,
   el,
@@ -46,13 +47,15 @@ export function editableColumn({
   layerColumn,
   currentY,
 }: EditableColumn): Placer {
-  // in vertical-coordinate units (m); keeps a layer from collapsing
-  const minThickness = 0.05;
+  // the current edited stack. Operations replace it wholesale; the
+  // joins key by index and placement reads bound datums, so a rebind
+  // after each accepted operation keeps everything reading fresh
+  let layers = editedLayers;
 
   const syncEditedLayers = () => {
     model.set(
       "editedLayers",
-      editedLayers.map((l) => ({ ...l })),
+      layers.map((l) => ({ ...l })),
     );
     model.save_changes();
   };
@@ -70,7 +73,7 @@ export function editableColumn({
   // "pointer" is the fallback where svg cursors are unsupported (Safari)
   const binShape =
     '<path d="M3 6h18M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6M10 11v6M14 11v6"/>';
-    
+
   const binCursor = `url("data:image/svg+xml,${encodeURIComponent(
     `<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke-linecap="round" stroke-linejoin="round"><g stroke="white" stroke-width="4.5">${binShape}</g><g stroke="black" stroke-width="2">${binShape}</g></svg>`,
   )}") 9 9, pointer`;
@@ -86,6 +89,8 @@ export function editableColumn({
     window.addEventListener(type, reflectAltKey, { signal });
   }
 
+  let dragChanged = false;
+
   const dragHandler = d3
     .drag<SVGRectElement, number>()
     .filter((event) => !event.altKey) // option-click is the merge gesture, not a drag
@@ -93,22 +98,27 @@ export function editableColumn({
     // slightly off-center doesn't make the boundary jump
     .subject((event, i) => ({
       x: event.x,
-      y: currentY()(editedLayers[i].bottom),
+      y: currentY()(layers[i].bottom),
     }))
     .on("drag", (event, i) => {
-      const above = editedLayers[i];
-      const below = editedLayers[i + 1];
-      const lo = Math.min(above.top, below.bottom) + minThickness;
-      const hi = Math.max(above.top, below.bottom) - minThickness;
-      const value = Math.max(lo, Math.min(hi, currentY().invert(event.y)));
+      const next = dragBoundary(layers, i, currentY().invert(event.y));
+      if (next === layers) {
+        return; // clamped back to where it was
+      }
 
-      above.bottom = value;
-      below.top = value;
+      layers = next;
+      dragChanged = true;
 
+      // same-length rebind: the index join reuses every node, only the
+      // datums (and the boundary labels reading them) come out fresh
+      layersG.call(layerColumn, layers);
       placeEditColumn(currentY());
     })
     .on("end", () => {
-      syncEditedLayers();
+      if (dragChanged) {
+        dragChanged = false;
+        syncEditedLayers();
+      }
     });
 
   // invisible hit strips over each internal boundary; dragging one
@@ -117,7 +127,7 @@ export function editableColumn({
   const boundaryHandles = (parent: AnySelection<SVGGElement>) =>
     parent
       .selectAll<SVGRectElement, number>("rect.handle")
-      .data(d3.range(editedLayers.length - 1))
+      .data(d3.range(layers.length - 1))
       .join("rect")
       .attr("class", "handle")
       .attr("x", 0)
@@ -133,11 +143,12 @@ export function editableColumn({
           return;
         }
 
-        editedLayers.splice(i, 2, {
-          ...editedLayers[i],
-          bottom: editedLayers[i + 1].bottom,
-        });
+        const next = merge(layers, i);
+        if (next === layers) {
+          return;
+        }
 
+        layers = next;
         updateEditColumn();
         syncEditedLayers();
       });
@@ -154,11 +165,7 @@ export function editableColumn({
   const pieInner = 24; // dead-zone hole, doubles as the class readout
   const pieSize = 2 * pieOuter + 4;
 
-  const palette = d3
-    .select(el)
-    .append("div")
-    .attr("class", "soil-pie")
-    .style("display", "none");
+  const palette = d3.select(el).append("div").attr("class", "soil-pie").style("display", "none");
 
   const pieSvg = palette
     .append("svg")
@@ -166,21 +173,16 @@ export function editableColumn({
     .attr("width", pieSize)
     .attr("height", pieSize);
 
-  // equal slices — the pie layout only carries the angles. sort(null)
-  // keeps palette order; the default sorts by value, which with equal
-  // values would scramble the angular contract
-  const halfSlice = Math.PI / soilClasses.length;
-  const pieArcs = d3
-    .pie<SoilClass>()
-    .value(1)
-    .sort(null)
-    .startAngle(-halfSlice)
-    .endAngle(2 * Math.PI - halfSlice)(soilClasses);
+  // equal slices — the pie layout only carries the angles, and doubles
+  // as the angular contract the release gesture hit-tests against.
+  // sort(null) keeps palette order; the default sorts by value, which
+  // with equal values would scramble that contract
+  const { startAngle, endAngle } = pieAngles(soilClasses.length);
+  const pieArcs = d3.pie<SoilClass>().value(1).sort(null).startAngle(startAngle).endAngle(endAngle)(
+    soilClasses,
+  );
 
-  const sliceArc = d3
-    .arc<d3.PieArcDatum<SoilClass>>()
-    .innerRadius(pieInner)
-    .outerRadius(pieOuter);
+  const sliceArc = d3.arc<d3.PieArcDatum<SoilClass>>().innerRadius(pieInner).outerRadius(pieOuter);
   const labelArc = d3
     .arc<d3.PieArcDatum<SoilClass>>()
     .innerRadius((pieInner + pieOuter) / 2)
@@ -224,8 +226,23 @@ export function editableColumn({
 
   let paletteTimer: number | undefined;
 
+  // press-drag-release state: pointerdown on a layer arms the pie,
+  // which opens the moment the pointer moves (drag intent) or after a
+  // short hold — snappier than the click fallback, which has to wait
+  // out the double-click window before it may show anything
+  const holdOpenMs = 150;
+  const dragSlop = 4; // movement in px that reads as drag intent
+
+  let press: { x: number; y: number; layer: Layer } | null = null;
+  let holdTimer: number | undefined;
+  let gestureOpen = false; // the pie is open with the button still down
+  let suppressClick = false; // a gesture just ran; swallow its trailing click
+
   const closePalette = () => {
     clearTimeout(paletteTimer);
+    clearTimeout(holdTimer);
+    press = null;
+    gestureOpen = false;
     palette.style("display", "none");
   };
 
@@ -238,26 +255,118 @@ export function editableColumn({
     // the current class stays in place and selectable (a no-op commit)
     // so every layer presents the identical pie — only marked
     slice.classed("active", (d) => d.data.name === layer.class);
+    slice.classed("armed", false);
 
     pieCenter.text(classLabel.get(layer.class!) ?? "—");
 
-    slice.on("click", (_, d) => {
-      layer.class = d.data.name;
-      // drop stale denormalized display props: from here on the class
-      // drives both color and label
-      delete layer.label;
-      delete layer.color;
+    slice.on("click", (_, d) => commitClass(layer, d.data));
+  };
 
+  const commitClass = (layer: Layer, picked: SoilClass) => {
+    const next = assignClass(layers, layers.indexOf(layer), picked.name);
+
+    if (next !== layers) {
+      layers = next;
       updateEditColumn();
       syncEditedLayers();
-      closePalette();
-    });
+    }
+
+    closePalette();
   };
+
+  // the wedge on the press→pointer bearing: hit-tested against the
+  // pie layout's own arc angles (pie-menu.ts), with the pie's inner
+  // hole as the dead zone
+  const wedgeUnder = (dx: number, dy: number) => wedgeAt(pieArcs, dx, dy, pieInner);
+
+  // mid-gesture feedback: highlight the armed wedge and preview its
+  // label in the center readout (back to the current class in the
+  // dead zone)
+  const armWedge = (index: number | null, layer: Layer) => {
+    slice.classed("armed", (d) => d.index === index);
+
+    pieCenter.text(
+      index == null
+        ? (classLabel.get(layer.class!) ?? "—")
+        : (soilClasses[index].label ?? soilClasses[index].name),
+    );
+  };
+
+  const openGesture = () => {
+    if (!press) {
+      return;
+    }
+
+    gestureOpen = true;
+    openPalette(press.x, press.y, press.layer);
+  };
+
+  // window-level so the drag keeps tracking over the pie overlay and
+  // outside the svg; only coordinates are read, so shadow-DOM
+  // retargeting doesn't matter here
+  window.addEventListener(
+    "pointermove",
+    (event) => {
+      if (!press) {
+        return;
+      }
+
+      const { x, y, layer } = press;
+      const [px, py] = d3.pointer(event, el);
+      const dx = px - x;
+      const dy = py - y;
+
+      if (!gestureOpen) {
+        if (Math.hypot(dx, dy) < dragSlop) {
+          return;
+        }
+
+        clearTimeout(holdTimer);
+        openGesture();
+      }
+
+      armWedge(wedgeUnder(dx, dy), layer);
+    },
+    { signal },
+  );
+
+  window.addEventListener(
+    "pointerup",
+    (event) => {
+      if (!press) {
+        return;
+      }
+
+      clearTimeout(holdTimer);
+
+      const { x, y, layer } = press;
+      press = null;
+
+      if (!gestureOpen) {
+        return; // a quick click — the click fallback takes it from here
+      }
+
+      gestureOpen = false;
+      suppressClick = true;
+
+      const [px, py] = d3.pointer(event, el);
+      const index = wedgeUnder(px - x, py - y);
+
+      if (index != null) {
+        commitClass(layer, soilClasses[index]);
+      }
+      // a dead-zone release keeps the pie open for click-to-pick
+    },
+    { signal },
+  );
 
   // dismiss on outside interaction or Escape; wheel-zooming would
   // leave the popup floating over the wrong layer. marimo renders the
   // widget in a shadow root, so window-level listeners see event.target
-  // retargeted to the shadow host — composedPath pierces the boundary
+  // retargeted to the shadow host — composedPath pierces the boundary.
+  // Capture phase, so pressing a layer rect closes the old pie (and
+  // resets the gesture state) before that rect's pointerdown arms the
+  // next one
   window.addEventListener(
     "pointerdown",
     (event) => {
@@ -265,22 +374,39 @@ export function editableColumn({
         closePalette();
       }
     },
-    { signal },
+    { capture: true, signal },
   );
   window.addEventListener("wheel", closePalette, { signal });
-  window.addEventListener(
-    "keydown",
-    (event) => event.key === "Escape" && closePalette(),
-    { signal },
-  );
+  window.addEventListener("keydown", (event) => event.key === "Escape" && closePalette(), {
+    signal,
+  });
 
-  // classify: click a layer, pick its class from the popup. the open
-  // is delayed one double-click beat so the first click of a split
-  // doesn't flash the popup; detail > 1 marks the second click
+  // classify: press a layer to arm the pie under the pointer — hold or
+  // drag to open, release over (or beyond) a wedge to commit. A quick
+  // click never opens mid-gesture, so it falls back to the delayed
+  // open, one double-click beat later, keeping the first click of a
+  // split from flashing the popup; detail > 1 marks the second click
   const classifyLayers = (parent: AnySelection<SVGGElement>) =>
     parent
       .selectAll<SVGRectElement, Layer>("g.layer rect")
+      .on("pointerdown", (event: PointerEvent, d) => {
+        if (event.button !== 0 || event.altKey) {
+          return;
+        }
+
+        const [px, py] = d3.pointer(event, el);
+
+        suppressClick = false;
+        press = { x: px, y: py, layer: d };
+        clearTimeout(holdTimer);
+        holdTimer = setTimeout(openGesture, holdOpenMs);
+      })
       .on("click", (event: MouseEvent, d) => {
+        if (suppressClick) {
+          suppressClick = false;
+          return;
+        }
+
         if (event.detail !== 1) {
           return;
         }
@@ -306,26 +432,14 @@ export function editableColumn({
         // the first click of this gesture scheduled the palette
         closePalette();
 
-        const lo = Math.min(d.top, d.bottom) + minThickness;
-        const hi = Math.max(d.top, d.bottom) - minThickness;
+        // the column group is only translated in x, so local y is svg y
+        const next = splitAt(layers, layers.indexOf(d), currentY().invert(d3.pointer(event)[1]));
 
-        if (lo > hi) {
+        if (next === layers) {
           return; // too thin to split
         }
 
-        // the column group is only translated in x, so local y is svg y
-        const value = Math.max(
-          lo,
-          Math.min(hi, currentY().invert(d3.pointer(event)[1])),
-        );
-
-        editedLayers.splice(
-          editedLayers.indexOf(d),
-          1,
-          { ...d, bottom: value },
-          { ...d, top: value },
-        );
-
+        layers = next;
         updateEditColumn();
         syncEditedLayers();
       });
@@ -333,7 +447,7 @@ export function editableColumn({
   const placeHandles: Placer = (y1) =>
     handlesG
       .selectAll<SVGRectElement, number>("rect.handle")
-      .attr("y", (i) => y1(editedLayers[i].bottom) - 4.5);
+      .attr("y", (i) => y1(layers[i].bottom) - 4.5);
 
   // layer placement rides the shared column placer during zoom; drags
   // and structural edits re-place layers and handles together
@@ -345,10 +459,7 @@ export function editableColumn({
   // full rebuild after a structural edit (split/merge): re-join layers
   // and handles, then re-place everything at the current zoom
   const updateEditColumn = () => {
-    layersG
-      .call(layerColumn, editedLayers)
-      .call(splitLayers)
-      .call(classifyLayers);
+    layersG.call(layerColumn, layers).call(splitLayers).call(classifyLayers);
 
     handlesG.call(boundaryHandles);
 

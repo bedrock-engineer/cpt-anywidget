@@ -3593,6 +3593,19 @@ function zoom() {
   };
   return zoom2;
 }
+const haloText = (text) => text.attr("stroke", "white").attr("stroke-width", 4).attr("paint-order", "stroke");
+function focusRig(svg, { marginLeft, ruleX2 }) {
+  const focus = svg.append("g").attr("display", "none").attr("pointer-events", "none");
+  const rule = focus.append("line").attr("x1", marginLeft).attr("x2", ruleX2).attr("stroke", "currentColor").attr("stroke-opacity", 0.3);
+  const readout = focus.append("text").attr("x", marginLeft - 8).attr("dy", "0.32em").attr("text-anchor", "end").attr("font-size", 12).attr("font-weight", "bold").attr("fill", "currentColor").call(haloText);
+  return {
+    focus,
+    rule,
+    readout,
+    show: (ym) => focus.attr("display", null).attr("transform", `translate(0,${ym})`),
+    hide: () => focus.attr("display", "none")
+  };
+}
 function makeVerticalScale(fallback, range, limits) {
   const y = linear().domain(limits ?? fallback).range(range);
   if (!limits) {
@@ -3648,9 +3661,11 @@ function verticalZoom(svg, {
   marginRight,
   marginTop,
   marginBottom,
-  onZoom
+  placers
 }) {
   let zy = y;
+  const placeAll = () => placers.forEach((place) => place(zy));
+  placeAll();
   const brush2 = brushY().keyModifiers(false).filter((event) => event.shiftKey).extent([
     [marginLeft, marginTop],
     // top-left
@@ -3673,7 +3688,7 @@ function verticalZoom(svg, {
   svg.append("g").call(brush2);
   function zoomed({ transform }) {
     zy = transform.rescaleY(y);
-    onZoom(zy);
+    placeAll();
   }
   const zoom$1 = zoom().scaleExtent([1, 16]).filter((event) => {
     if (event.button) {
@@ -3696,6 +3711,7 @@ function verticalZoom(svg, {
     "dblclick",
     () => svg.transition().duration(750).call(zoom$1.transform, identity)
   );
+  return () => zy;
 }
 const bhrgtViewer = {
   render({ model, el }) {
@@ -3732,7 +3748,7 @@ const bhrgtViewer = {
       ...new Set(layers.flatMap((l) => (l.bands ?? []).map((b) => b.hatch)))
     ].filter(Boolean);
     const hatchId = hatchDefs(svg, usedHatches);
-    const gy = svg.append("g").call(yAxis, y);
+    const gy = svg.append("g");
     verticalAxisTitle(svg, vert.label);
     const bands = layers.flatMap(
       (layer) => (layer.bands ?? []).map((b) => ({ ...b, layer }))
@@ -3744,30 +3760,19 @@ const bhrgtViewer = {
     const soilLabel = gLayers.selectAll("text").data(layers).join("text").attr("x", x(0.5)).attr("dy", "0.32em").attr("text-anchor", "middle").attr("font-size", 10).attr("fill", "#333").attr("stroke", "white").attr("stroke-width", 1.5).attr("paint-order", "stroke").text((l) => l.label ?? "");
     const placeLayers = (y1) => {
       for (const rect of [bandRect, hatchRect]) {
-        rect.attr("y", (b) => Math.min(y1(b.layer.top), y1(b.layer.bottom))).attr(
-          "height",
-          (b) => Math.abs(y1(b.layer.bottom) - y1(b.layer.top))
-        );
+        rect.attr("y", (b) => Math.min(y1(b.layer.top), y1(b.layer.bottom))).attr("height", (b) => Math.abs(y1(b.layer.bottom) - y1(b.layer.top)));
       }
-      soilLabel.attr("y", (l) => (y1(l.top) + y1(l.bottom)) / 2).attr(
-        "display",
-        (l) => Math.abs(y1(l.bottom) - y1(l.top)) >= 14 ? null : "none"
-      );
+      soilLabel.attr("y", (l) => (y1(l.top) + y1(l.bottom)) / 2).attr("display", (l) => Math.abs(y1(l.bottom) - y1(l.top)) >= 14 ? null : "none");
     };
-    placeLayers(y);
     const placeAnnotations = annotationLayer(svg, annotations, {
       clipId,
       marginLeft,
       marginRight,
       width
     });
-    placeAnnotations(y);
     const formatVertical = format(vert.format);
-    const focus = svg.append("g").attr("display", "none");
-    focus.append("line").attr("x1", marginLeft).attr("x2", width - marginRight).attr("stroke", "currentColor").attr("stroke-opacity", 0.3);
-    const verticalReadout = focus.append("text").attr("x", marginLeft - 8).attr("dy", "0.32em").attr("text-anchor", "end").attr("font-size", 12).attr("font-weight", "bold").attr("fill", "currentColor").attr("stroke", "white").attr("stroke-width", 4).attr("paint-order", "stroke");
-    const layerReadout = focus.append("text").attr("x", width - marginRight - 6).attr("y", -6).attr("text-anchor", "end").attr("font-size", 12).attr("fill", "#333").attr("stroke", "white").attr("stroke-width", 4).attr("paint-order", "stroke");
-    let zy = y;
+    const rig = focusRig(svg, { marginLeft, ruleX2: width - marginRight });
+    const layerReadout = rig.focus.append("text").attr("x", width - marginRight - 6).attr("y", -6).attr("text-anchor", "end").attr("font-size", 12).attr("fill", "#333").call(haloText);
     const bisectTop = layers.length < 2 || layers[0].top <= layers[1].top ? bisector((l) => l.top).right : bisector((l, v) => v - l.top).right;
     const layerAt = (value) => {
       const l = layers[bisectTop(layers, value) - 1];
@@ -3775,18 +3780,18 @@ const bhrgtViewer = {
     };
     function pointermoved(event) {
       const [, ym] = pointer(event);
-      const value = zy.invert(ym);
+      const value = current().invert(ym);
       const layer = layerAt(value);
       if (!layer) {
-        focus.attr("display", "none");
+        rig.hide();
         return;
       }
-      focus.attr("display", null).attr("transform", `translate(0,${ym})`);
-      verticalReadout.text(`${formatVertical(value)} m`);
+      rig.show(ym);
+      rig.readout.text(`${formatVertical(value)} m`);
       layerReadout.text(layer.label ?? "");
     }
-    svg.on("pointerenter pointermove", pointermoved).on("pointerleave", () => focus.attr("display", "none"));
-    verticalZoom(svg, {
+    svg.on("pointerenter pointermove", pointermoved).on("pointerleave", rig.hide);
+    const current = verticalZoom(svg, {
       y,
       width,
       height,
@@ -3794,12 +3799,7 @@ const bhrgtViewer = {
       marginRight,
       marginTop,
       marginBottom,
-      onZoom: (zy1) => {
-        zy = zy1;
-        gy.call(yAxis, zy);
-        placeLayers(zy);
-        placeAnnotations(zy);
-      }
+      placers: [(y1) => gy.call(yAxis, y1), placeLayers, placeAnnotations]
     });
   }
 };

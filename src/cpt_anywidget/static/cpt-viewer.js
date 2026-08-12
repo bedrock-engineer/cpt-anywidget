@@ -576,9 +576,9 @@ function selection_join(onenter, onupdate, onexit) {
 function selection_merge(context) {
   var selection2 = context.selection ? context.selection() : context;
   for (var groups0 = this._groups, groups1 = selection2._groups, m0 = groups0.length, m1 = groups1.length, m = Math.min(m0, m1), merges = new Array(m0), j = 0; j < m; ++j) {
-    for (var group0 = groups0[j], group1 = groups1[j], n = group0.length, merge = merges[j] = new Array(n), node, i = 0; i < n; ++i) {
+    for (var group0 = groups0[j], group1 = groups1[j], n = group0.length, merge2 = merges[j] = new Array(n), node, i = 0; i < n; ++i) {
       if (node = group0[i] || group1[i]) {
-        merge[i] = node;
+        merge2[i] = node;
       }
     }
   }
@@ -2383,9 +2383,9 @@ function transition_filter(match) {
 function transition_merge(transition) {
   if (transition._id !== this._id) throw new Error();
   for (var groups0 = this._groups, groups1 = transition._groups, m0 = groups0.length, m1 = groups1.length, m = Math.min(m0, m1), merges = new Array(m0), j = 0; j < m; ++j) {
-    for (var group0 = groups0[j], group1 = groups1[j], n = group0.length, merge = merges[j] = new Array(n), node, i = 0; i < n; ++i) {
+    for (var group0 = groups0[j], group1 = groups1[j], n = group0.length, merge2 = merges[j] = new Array(n), node, i = 0; i < n; ++i) {
       if (node = group0[i] || group1[i]) {
-        merge[i] = node;
+        merge2[i] = node;
       }
     }
   }
@@ -4442,15 +4442,8 @@ function cptChart(svg, {
     [marginTop, height - marginBottom],
     axisLimits[vert.key]
   );
-  const xAxis = (g, s, slotY) => g.attr("transform", `translate(0,${slotY})`).call(
-    (s.side === "bottom" ? axisBottom : axisTop)(s.x).ticks(
-      width / 100
-    )
-  ).call((g2) => g2.selectAll("text").attr("fill", s.color)).call((g2) => g2.selectAll("line").attr("stroke", s.color)).call((g2) => g2.select(".domain").attr("stroke", s.color)).call(
-    (g2) => g2.append("text").attr(
-      "x",
-      s.side === "bottom" ? margin.left - 16 : width - margin.right + 16
-    ).attr("y", s.side === "bottom" ? 9 : -9).attr("dy", s.side === "bottom" ? "0.71em" : "0em").attr("fill", s.color).attr("text-anchor", s.side === "bottom" ? "end" : "start").attr("font-weight", "bold").text(s.unit ? `${s.label} [${s.unit}]` : s.label)
+  const xAxis = (g, s, slotY) => g.attr("transform", `translate(0,${slotY})`).call((s.side === "bottom" ? axisBottom : axisTop)(s.x).ticks(width / 100)).call((g2) => g2.selectAll("text").attr("fill", s.color)).call((g2) => g2.selectAll("line").attr("stroke", s.color)).call((g2) => g2.select(".domain").attr("stroke", s.color)).call(
+    (g2) => g2.append("text").attr("x", s.side === "bottom" ? margin.left - 16 : width - margin.right + 16).attr("y", s.side === "bottom" ? 9 : -9).attr("dy", s.side === "bottom" ? "0.71em" : "0em").attr("fill", s.color).attr("text-anchor", s.side === "bottom" ? "end" : "start").attr("font-weight", "bold").text(s.unit ? `${s.label} [${s.unit}]` : s.label)
   );
   const gridXScale = bottomSeries[0]?.x ?? topSeries[0]?.x;
   const xGrid = (g) => g.attr("stroke", "currentColor").attr("stroke-opacity", 0.1).selectAll("line").data(gridXScale ? gridXScale.ticks(width / 100) : []).join("line").attr("x1", (d) => 0.5 + gridXScale(d)).attr("x2", (d) => 0.5 + gridXScale(d)).attr("y1", marginTop).attr("y2", height - marginBottom);
@@ -4471,13 +4464,11 @@ function cptChart(svg, {
   bottomSeries.forEach(
     (s, i) => svg.append("g").call(xAxis, s, height - marginBottom + axisSlot * i)
   );
-  topSeries.forEach(
-    (s, i) => svg.append("g").call(xAxis, s, marginTop - axisSlot * i)
-  );
+  topSeries.forEach((s, i) => svg.append("g").call(xAxis, s, marginTop - axisSlot * i));
   const gy = svg.append("g").call(yAxis, y2);
   verticalAxisTitle(svg, vert.label);
   const seriesPaths = svg.append("g").selectAll("path").data(series, (s) => s.key).join("path").attr("clip-path", `url(#${clipId})`).attr("fill", "none").attr("stroke", (s) => s.color).attr("stroke-width", 1).attr("d", (s) => lineFor(s, vertical, y2));
-  const update = (y1) => {
+  const place = (y1) => {
     gy.call(yAxis, y1);
     gGrid.call(yGrid, y1);
     seriesPaths.attr("d", (s) => lineFor(s, vertical, y1));
@@ -4489,7 +4480,7 @@ function cptChart(svg, {
     clipId,
     marginTop,
     marginBottom,
-    update
+    place
   };
 }
 function dodgeLabels(anchors, separation, extent) {
@@ -4661,6 +4652,19 @@ function overlayLayer(svg, overlays, { seriesByKey, clipId }) {
   const paths = svg.append("g").attr("clip-path", `url(#${clipId})`).selectAll("path").data(overlays).join("path").attr("fill", "none").attr("stroke", (o) => o.color ?? "currentColor").attr("stroke-width", (o) => o.width ?? 1.5).attr("stroke-dasharray", (o) => o.dash ?? "6 4");
   return (y1) => paths.attr("d", (o) => overlayPath(o, y1));
 }
+const haloText = (text) => text.attr("stroke", "white").attr("stroke-width", 4).attr("paint-order", "stroke");
+function focusRig(svg, { marginLeft, ruleX2 }) {
+  const focus = svg.append("g").attr("display", "none").attr("pointer-events", "none");
+  const rule = focus.append("line").attr("x1", marginLeft).attr("x2", ruleX2).attr("stroke", "currentColor").attr("stroke-opacity", 0.3);
+  const readout = focus.append("text").attr("x", marginLeft - 8).attr("dy", "0.32em").attr("text-anchor", "end").attr("font-size", 12).attr("font-weight", "bold").attr("fill", "currentColor").call(haloText);
+  return {
+    focus,
+    rule,
+    readout,
+    show: (ym) => focus.attr("display", null).attr("transform", `translate(0,${ym})`),
+    hide: () => focus.attr("display", "none")
+  };
+}
 function crosshair(svg, {
   series,
   vertical,
@@ -4671,11 +4675,9 @@ function crosshair(svg, {
   currentY
 }) {
   const formatValue = format(".2f");
-  const focus = svg.append("g").attr("display", "none");
-  focus.append("line").attr("x1", marginLeft).attr("x2", width - marginRight).attr("stroke", "currentColor").attr("stroke-opacity", 0.3);
-  const verticalReadout = focus.append("text").attr("x", marginLeft - 8).attr("dy", "0.32em").attr("text-anchor", "end").attr("font-size", 12).attr("font-weight", "bold").attr("fill", "currentColor").attr("stroke", "white").attr("stroke-width", 4).attr("paint-order", "stroke");
-  const dots = focus.selectAll("circle").data(series).join("circle").attr("r", 2.5).attr("fill", (s) => s.color);
-  const readouts = focus.selectAll("text.readout").data(series).join("text").attr("class", "readout").attr("x", width - marginRight).attr("y", (_, i) => (i - (series.length - 1) / 2) * 14).attr("dy", "0.32em").attr("text-anchor", "start").attr("font-size", 12).attr("fill", (s) => s.color).attr("stroke", "white").attr("stroke-width", 4).attr("paint-order", "stroke");
+  const rig = focusRig(svg, { marginLeft, ruleX2: width - marginRight });
+  const dots = rig.focus.selectAll("circle").data(series).join("circle").attr("r", 2.5).attr("fill", (s) => s.color);
+  const readouts = rig.focus.selectAll("text.readout").data(series).join("text").attr("class", "readout").attr("x", width - marginRight).attr("y", (_, i) => (i - (series.length - 1) / 2) * 14).attr("dy", "0.32em").attr("text-anchor", "start").attr("font-size", 12).attr("fill", (s) => s.color).call(haloText);
   const bisectorDescend = bisector((d, x2) => x2 - d);
   const bisectVertical = vertical[0] <= vertical[vertical.length - 1] ? (value) => bisectCenter(vertical, value) : (value) => bisectorDescend.center(vertical, value);
   function pointermoved(event) {
@@ -4683,17 +4685,15 @@ function crosshair(svg, {
     const [, ym] = pointer(event);
     const i = bisectVertical(zy.invert(ym));
     if (vertical[i] == null) {
-      focus.attr("display", "none");
+      rig.hide();
       return;
     }
-    focus.attr("display", null).attr("transform", `translate(0,${zy(vertical[i])})`);
-    verticalReadout.text(`${formatVertical(vertical[i])} m`);
+    rig.show(zy(vertical[i]));
+    rig.readout.text(`${formatVertical(vertical[i])} m`);
     dots.attr("display", (s) => s.values[i] == null ? "none" : null).attr("cx", (s) => s.values[i] == null ? 0 : s.x(s.values[i]));
-    readouts.text(
-      (s) => s.values[i] == null ? "" : `${s.label} ${formatValue(s.values[i])}`
-    );
+    readouts.text((s) => s.values[i] == null ? "" : `${s.label} ${formatValue(s.values[i])}`);
   }
-  svg.on("pointerenter pointermove", pointermoved).on("pointerleave", () => focus.attr("display", "none"));
+  svg.on("pointerenter pointermove", pointermoved).on("pointerleave", rig.hide);
 }
 const verticalDefaults = {
   depth: { label: "depth [m]", up: false, format: ".2f" },
@@ -4719,9 +4719,11 @@ function verticalZoom(svg, {
   marginRight,
   marginTop,
   marginBottom,
-  onZoom
+  placers
 }) {
   let zy = y2;
+  const placeAll = () => placers.forEach((place) => place(zy));
+  placeAll();
   const brush2 = brushY().keyModifiers(false).filter((event) => event.shiftKey).extent([
     [marginLeft, marginTop],
     // top-left
@@ -4744,7 +4746,7 @@ function verticalZoom(svg, {
   svg.append("g").call(brush2);
   function zoomed({ transform }) {
     zy = transform.rescaleY(y2);
-    onZoom(zy);
+    placeAll();
   }
   const zoom$1 = zoom().scaleExtent([1, 16]).filter((event) => {
     if (event.button) {
@@ -4767,6 +4769,76 @@ function verticalZoom(svg, {
     "dblclick",
     () => svg.transition().duration(750).call(zoom$1.transform, identity)
   );
+  return () => zy;
+}
+const minThickness = 0.05;
+const clampWindow = (a, b) => [
+  Math.min(a, b) + minThickness,
+  Math.max(a, b) - minThickness
+];
+function dragBoundary(layers, i, value) {
+  const above = layers[i];
+  const below = layers[i + 1];
+  if (!above || !below) {
+    return layers;
+  }
+  const [lo, hi] = clampWindow(above.top, below.bottom);
+  if (lo > hi) {
+    return layers;
+  }
+  const v = Math.max(lo, Math.min(hi, value));
+  if (v === above.bottom && v === below.top) {
+    return layers;
+  }
+  return layers.map((l, j) => j === i ? { ...l, bottom: v } : j === i + 1 ? { ...l, top: v } : l);
+}
+function splitAt(layers, i, value) {
+  const d = layers[i];
+  if (!d) {
+    return layers;
+  }
+  const [lo, hi] = clampWindow(d.top, d.bottom);
+  if (lo > hi) {
+    return layers;
+  }
+  const v = Math.max(lo, Math.min(hi, value));
+  return [...layers.slice(0, i), { ...d, bottom: v }, { ...d, top: v }, ...layers.slice(i + 1)];
+}
+function merge(layers, i) {
+  const above = layers[i];
+  const below = layers[i + 1];
+  if (!above || !below) {
+    return layers;
+  }
+  return [...layers.slice(0, i), { ...above, bottom: below.bottom }, ...layers.slice(i + 2)];
+}
+function assignClass(layers, i, className) {
+  const d = layers[i];
+  if (!d) {
+    return layers;
+  }
+  if (d.class === className && d.color === void 0 && d.label === void 0) {
+    return layers;
+  }
+  const next = { ...d, class: className };
+  delete next.color;
+  delete next.label;
+  return layers.map((l, j) => j === i ? next : l);
+}
+function pieAngles(count) {
+  const half = Math.PI / count;
+  return { startAngle: -half, endAngle: 2 * Math.PI - half };
+}
+function wedgeAt(arcs, dx, dy, deadZone) {
+  if (Math.hypot(dx, dy) < deadZone) {
+    return null;
+  }
+  const tau2 = 2 * Math.PI;
+  const bearing = Math.atan2(dx, -dy);
+  const index = arcs.findIndex(
+    (a) => ((bearing - a.startAngle) % tau2 + tau2) % tau2 < a.endAngle - a.startAngle
+  );
+  return index === -1 ? null : index;
 }
 function editableColumn({
   model,
@@ -4781,11 +4853,11 @@ function editableColumn({
   layerColumn,
   currentY
 }) {
-  const minThickness = 0.05;
+  let layers = editedLayers;
   const syncEditedLayers = () => {
     model.set(
       "editedLayers",
-      editedLayers.map((l) => ({ ...l }))
+      layers.map((l) => ({ ...l }))
     );
     model.save_changes();
   };
@@ -4802,29 +4874,34 @@ function editableColumn({
   for (const type2 of ["keydown", "keyup", "blur"]) {
     window.addEventListener(type2, reflectAltKey, { signal });
   }
+  let dragChanged = false;
   const dragHandler = drag().filter((event) => !event.altKey).subject((event, i) => ({
     x: event.x,
-    y: currentY()(editedLayers[i].bottom)
+    y: currentY()(layers[i].bottom)
   })).on("drag", (event, i) => {
-    const above = editedLayers[i];
-    const below = editedLayers[i + 1];
-    const lo = Math.min(above.top, below.bottom) + minThickness;
-    const hi = Math.max(above.top, below.bottom) - minThickness;
-    const value = Math.max(lo, Math.min(hi, currentY().invert(event.y)));
-    above.bottom = value;
-    below.top = value;
+    const next = dragBoundary(layers, i, currentY().invert(event.y));
+    if (next === layers) {
+      return;
+    }
+    layers = next;
+    dragChanged = true;
+    layersG.call(layerColumn, layers);
     placeEditColumn(currentY());
   }).on("end", () => {
-    syncEditedLayers();
+    if (dragChanged) {
+      dragChanged = false;
+      syncEditedLayers();
+    }
   });
-  const boundaryHandles = (parent) => parent.selectAll("rect.handle").data(range(editedLayers.length - 1)).join("rect").attr("class", "handle").attr("x", 0).attr("width", columnWidth).attr("height", 9).attr("fill", "transparent").attr("cursor", handleCursor()).call(dragHandler).on("click", (event, i) => {
+  const boundaryHandles = (parent) => parent.selectAll("rect.handle").data(range(layers.length - 1)).join("rect").attr("class", "handle").attr("x", 0).attr("width", columnWidth).attr("height", 9).attr("fill", "transparent").attr("cursor", handleCursor()).call(dragHandler).on("click", (event, i) => {
     if (!event.altKey) {
       return;
     }
-    editedLayers.splice(i, 2, {
-      ...editedLayers[i],
-      bottom: editedLayers[i + 1].bottom
-    });
+    const next = merge(layers, i);
+    if (next === layers) {
+      return;
+    }
+    layers = next;
     updateEditColumn();
     syncEditedLayers();
   });
@@ -4834,8 +4911,10 @@ function editableColumn({
   const pieSize = 2 * pieOuter + 4;
   const palette = select(el).append("div").attr("class", "soil-pie").style("display", "none");
   const pieSvg = palette.append("svg").attr("viewBox", [-pieSize / 2, -pieSize / 2, pieSize, pieSize].join(",")).attr("width", pieSize).attr("height", pieSize);
-  const halfSlice = Math.PI / soilClasses.length;
-  const pieArcs = pie().value(1).sort(null).startAngle(-halfSlice).endAngle(2 * Math.PI - halfSlice)(soilClasses);
+  const { startAngle, endAngle } = pieAngles(soilClasses.length);
+  const pieArcs = pie().value(1).sort(null).startAngle(startAngle).endAngle(endAngle)(
+    soilClasses
+  );
   const sliceArc = arc().innerRadius(pieInner).outerRadius(pieOuter);
   const labelArc = arc().innerRadius((pieInner + pieOuter) / 2).outerRadius((pieInner + pieOuter) / 2);
   const slice = pieSvg.selectAll("g.slice").data(pieArcs).join("g").attr("class", "slice");
@@ -4844,23 +4923,92 @@ function editableColumn({
   pieSvg.append("circle").attr("r", pieInner - 2).attr("fill", "white");
   const pieCenter = pieSvg.append("text").attr("text-anchor", "middle").attr("dy", "0.32em").attr("font-size", 10).attr("fill", "#333");
   let paletteTimer;
+  const holdOpenMs = 150;
+  const dragSlop = 4;
+  let press = null;
+  let holdTimer;
+  let gestureOpen = false;
+  let suppressClick = false;
   const closePalette = () => {
     clearTimeout(paletteTimer);
+    clearTimeout(holdTimer);
+    press = null;
+    gestureOpen = false;
     palette.style("display", "none");
   };
   const openPalette = (x2, y2, layer) => {
     palette.style("display", null).style("left", `${x2 - pieSize / 2}px`).style("top", `${y2 - pieSize / 2}px`);
     slice.classed("active", (d) => d.data.name === layer.class);
+    slice.classed("armed", false);
     pieCenter.text(classLabel.get(layer.class) ?? "—");
-    slice.on("click", (_, d) => {
-      layer.class = d.data.name;
-      delete layer.label;
-      delete layer.color;
+    slice.on("click", (_, d) => commitClass(layer, d.data));
+  };
+  const commitClass = (layer, picked) => {
+    const next = assignClass(layers, layers.indexOf(layer), picked.name);
+    if (next !== layers) {
+      layers = next;
       updateEditColumn();
       syncEditedLayers();
-      closePalette();
-    });
+    }
+    closePalette();
   };
+  const wedgeUnder = (dx, dy) => wedgeAt(pieArcs, dx, dy, pieInner);
+  const armWedge = (index, layer) => {
+    slice.classed("armed", (d) => d.index === index);
+    pieCenter.text(
+      index == null ? classLabel.get(layer.class) ?? "—" : soilClasses[index].label ?? soilClasses[index].name
+    );
+  };
+  const openGesture = () => {
+    if (!press) {
+      return;
+    }
+    gestureOpen = true;
+    openPalette(press.x, press.y, press.layer);
+  };
+  window.addEventListener(
+    "pointermove",
+    (event) => {
+      if (!press) {
+        return;
+      }
+      const { x: x2, y: y2, layer } = press;
+      const [px, py] = pointer(event, el);
+      const dx = px - x2;
+      const dy = py - y2;
+      if (!gestureOpen) {
+        if (Math.hypot(dx, dy) < dragSlop) {
+          return;
+        }
+        clearTimeout(holdTimer);
+        openGesture();
+      }
+      armWedge(wedgeUnder(dx, dy), layer);
+    },
+    { signal }
+  );
+  window.addEventListener(
+    "pointerup",
+    (event) => {
+      if (!press) {
+        return;
+      }
+      clearTimeout(holdTimer);
+      const { x: x2, y: y2, layer } = press;
+      press = null;
+      if (!gestureOpen) {
+        return;
+      }
+      gestureOpen = false;
+      suppressClick = true;
+      const [px, py] = pointer(event, el);
+      const index = wedgeUnder(px - x2, py - y2);
+      if (index != null) {
+        commitClass(layer, soilClasses[index]);
+      }
+    },
+    { signal }
+  );
   window.addEventListener(
     "pointerdown",
     (event) => {
@@ -4868,15 +5016,26 @@ function editableColumn({
         closePalette();
       }
     },
-    { signal }
+    { capture: true, signal }
   );
   window.addEventListener("wheel", closePalette, { signal });
-  window.addEventListener(
-    "keydown",
-    (event) => event.key === "Escape" && closePalette(),
-    { signal }
-  );
-  const classifyLayers = (parent) => parent.selectAll("g.layer rect").on("click", (event, d) => {
+  window.addEventListener("keydown", (event) => event.key === "Escape" && closePalette(), {
+    signal
+  });
+  const classifyLayers = (parent) => parent.selectAll("g.layer rect").on("pointerdown", (event, d) => {
+    if (event.button !== 0 || event.altKey) {
+      return;
+    }
+    const [px, py] = pointer(event, el);
+    suppressClick = false;
+    press = { x: px, y: py, layer: d };
+    clearTimeout(holdTimer);
+    holdTimer = setTimeout(openGesture, holdOpenMs);
+  }).on("click", (event, d) => {
+    if (suppressClick) {
+      suppressClick = false;
+      return;
+    }
     if (event.detail !== 1) {
       return;
     }
@@ -4887,31 +5046,21 @@ function editableColumn({
   const splitLayers = (parent) => parent.selectAll("g.layer rect").attr("cursor", "crosshair").on("dblclick", (event, d) => {
     event.stopPropagation();
     closePalette();
-    const lo = Math.min(d.top, d.bottom) + minThickness;
-    const hi = Math.max(d.top, d.bottom) - minThickness;
-    if (lo > hi) {
+    const next = splitAt(layers, layers.indexOf(d), currentY().invert(pointer(event)[1]));
+    if (next === layers) {
       return;
     }
-    const value = Math.max(
-      lo,
-      Math.min(hi, currentY().invert(pointer(event)[1]))
-    );
-    editedLayers.splice(
-      editedLayers.indexOf(d),
-      1,
-      { ...d, bottom: value },
-      { ...d, top: value }
-    );
+    layers = next;
     updateEditColumn();
     syncEditedLayers();
   });
-  const placeHandles = (y1) => handlesG.selectAll("rect.handle").attr("y", (i) => y1(editedLayers[i].bottom) - 4.5);
+  const placeHandles = (y1) => handlesG.selectAll("rect.handle").attr("y", (i) => y1(layers[i].bottom) - 4.5);
   const placeEditColumn = (y1) => {
     placeLayerColumn(layersG, y1);
     placeHandles(y1);
   };
   const updateEditColumn = () => {
-    layersG.call(layerColumn, editedLayers).call(splitLayers).call(classifyLayers);
+    layersG.call(layerColumn, layers).call(splitLayers).call(classifyLayers);
     handlesG.call(boundaryHandles);
     placeEditColumn(currentY());
   };
@@ -4941,7 +5090,7 @@ function layoutColumns(columns, width, column) {
 }
 const cptViewer = {
   /** @param context the model shared by every view of this widget */
-  initialize({ model, signal }) {
+  initialize(_context) {
   },
   render({ model, el, signal: hostSignal }) {
     const controller = new AbortController();
@@ -5004,7 +5153,7 @@ const cptViewer = {
     ];
     const { totalWidth, x0 } = layoutColumns(columns, width, column);
     const svg = select(el).append("svg").attr("viewBox", [x0, 0, totalWidth - x0, height].join(",")).attr("width", totalWidth - x0).attr("height", height).style("max-width", "100%").style("height", "auto").style("user-select", "none").style("-webkit-user-select", "none");
-    const { series, seriesByKey, y: y2, clipId, marginTop, marginBottom, update } = cptChart(svg, {
+    const { series, seriesByKey, y: y2, clipId, marginTop, marginBottom, place } = cptChart(svg, {
       cptData,
       vertical,
       vert,
@@ -5016,19 +5165,16 @@ const cptViewer = {
       // gridlines reach across the layer columns
       gridRight: totalWidth
     });
-    let zy = y2;
     const placeOverlays = overlayLayer(svg, model.get("overlays") ?? [], {
       seriesByKey,
       clipId
     });
-    placeOverlays(y2);
     const placeAnnotations = annotationLayer(svg, annotations, {
       clipId,
       marginLeft,
       marginRight,
       width
     });
-    placeAnnotations(y2);
     const columnHeader = (g, label) => g.append("text").attr("x", column.width / 2).attr("y", marginTop - 8).attr("text-anchor", "middle").attr("font-size", 12).attr("font-weight", "bold").attr("fill", "currentColor").text(label);
     const columnClipId = plotClip(svg, "column-clip", {
       x: -8,
@@ -5069,14 +5215,15 @@ const cptViewer = {
         classLabel,
         columnWidth: column.width,
         layerColumn,
-        currentY: () => zy
+        // closes over the zoom drive declared below; pointer events
+        // can't fire before render completes, so the read is safe
+        currentY: () => current()
       });
       columnPlacers.push(placeHandles);
     }
     const placeColumns = (y1) => {
-      columnPlacers.forEach((place) => place(y1));
+      columnPlacers.forEach((place2) => place2(y1));
     };
-    placeColumns(y2);
     crosshair(svg, {
       series,
       vertical,
@@ -5084,9 +5231,9 @@ const cptViewer = {
       marginLeft,
       marginRight,
       width,
-      currentY: () => zy
+      currentY: () => current()
     });
-    verticalZoom(svg, {
+    const current = verticalZoom(svg, {
       y: y2,
       width,
       height,
@@ -5094,13 +5241,7 @@ const cptViewer = {
       marginRight,
       marginTop,
       marginBottom,
-      onZoom: (zy1) => {
-        zy = zy1;
-        update(zy);
-        placeOverlays(zy);
-        placeAnnotations(zy);
-        placeColumns(zy);
-      }
+      placers: [place, placeOverlays, placeAnnotations, placeColumns]
     });
     return () => controller.abort();
   }

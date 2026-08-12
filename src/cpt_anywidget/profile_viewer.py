@@ -4,7 +4,8 @@ import pathlib
 import anywidget
 import traitlets
 
-from cpt_anywidget.cpt_viewer import Channel, _columns, _sorted_columns
+from cpt_anywidget.cpt_viewer import Channel
+from cpt_anywidget.intake import split, tidy
 from cpt_anywidget.vertical import Vertical, resolve_vertical
 
 _HERE = pathlib.Path(__file__).parent
@@ -28,32 +29,6 @@ def chainage(coords):
         out[name] = total
         prev = (x, y)
     return out
-
-
-def _split_cpts(data, name_key):
-    """Tidy long columns → {name: columns}: rows grouped by the name
-    column (kept in first-appearance order), the remaining columns
-    scrubbed JSON-safe per group. Same input contract as ``_columns``
-    plus the name column.
-    """
-    if not hasattr(data, "items"):  # polars DataFrame
-        data = data.to_dict(as_series=False)
-    data = {str(k): list(v) for k, v in data.items()}
-    if name_key not in data:
-        raise ValueError(
-            f"name column {name_key!r} not in data (columns: {sorted(data)})"
-        )
-    names = [str(n) for n in data.pop(name_key)]
-    columns = _columns(data)
-    if columns and len(names) != len(next(iter(columns.values()))):
-        raise ValueError("name column length differs from the data columns")
-    rows = {}
-    for i, n in enumerate(names):
-        rows.setdefault(n, []).append(i)
-    return {
-        n: {k: [v[i] for i in index] for k, v in columns.items()}
-        for n, index in rows.items()
-    }
 
 
 class ProfileViewer(anywidget.AnyWidget):
@@ -139,8 +114,10 @@ class ProfileViewer(anywidget.AnyWidget):
 
         ``data`` — tidy long-format columns: a polars or pandas DataFrame
         or dict of equal-length lists holding every CPT's samples, with a
-        name column telling them apart. Rows are grouped per CPT, then
-        sanitized and sorted exactly like :class:`CPTViewer` data.
+        name column telling them apart. Rows are grouped per CPT via
+        :func:`~cpt_anywidget.intake.split`, then each group goes through
+        :func:`~cpt_anywidget.intake.tidy` exactly like
+        :class:`CPTViewer` data.
         ``positions`` — {name: chainage in m} along the profile line (see
         :func:`chainage` to compute it from map coordinates); every name
         in ``data`` must be present. Omitted = input order, one unit
@@ -165,7 +142,7 @@ class ProfileViewer(anywidget.AnyWidget):
         )
         descending = vert.up  # elevation: highest sample on top
         if data is not None:
-            groups = _split_cpts(data, name)
+            groups = split(data, name)
             if positions is None:
                 positions = {n: float(i) for i, n in enumerate(groups)}
             missing = sorted(set(groups) - set(positions))
@@ -176,7 +153,7 @@ class ProfileViewer(anywidget.AnyWidget):
                     {
                         "name": n,
                         "distance": float(positions[n]),
-                        "data": _sorted_columns(cols, vert.key, descending),
+                        "data": tidy(cols, vert),
                     }
                     for n, cols in groups.items()
                 ),

@@ -59,9 +59,9 @@ export interface ColumnGeometry {
 
 export default {
   /** @param context the model shared by every view of this widget */
-  initialize({ model, signal }: { model: AnyModel<CptModel>; signal: AbortSignal }) {
+  initialize(_context: { model: AnyModel<CptModel>; signal: AbortSignal }) {
     // Set up shared state, event handlers, or programmatic exports.
-    // Use `signal` (AbortSignal) for cleanup when the widget is destroyed.
+    // Use the context's `signal` for cleanup when the widget is destroyed.
   },
   render({ model, el, signal: hostSignal }: RenderProps<CptModel>) {
     // marimo's anywidget host predates the AFM `signal` prop and passes
@@ -195,9 +195,9 @@ export default {
       .style("-webkit-user-select", "none"); // still required in Safari
 
     // the chart core: curves, stacked x axes, grids, the vertical axis.
-    // Margins come back grown by the axis stacking; update() redraws the
+    // Margins come back grown by the axis stacking; place() redraws the
     // chart's parts in the zoom loop alongside the widget's own placers
-    const { series, seriesByKey, y, clipId, marginTop, marginBottom, update } = cptChart(svg, {
+    const { series, seriesByKey, y, clipId, marginTop, marginBottom, place } = cptChart(svg, {
       cptData,
       vertical,
       vert,
@@ -210,14 +210,10 @@ export default {
       gridRight: totalWidth,
     });
 
-    let zy = y; // the currently zoomed depth scale
-
     const placeOverlays = overlayLayer(svg, model.get("overlays") ?? [], {
       seriesByKey,
       clipId,
     });
-
-    placeOverlays(y);
 
     const placeAnnotations = annotationLayer(svg, annotations, {
       clipId,
@@ -225,8 +221,6 @@ export default {
       marginRight,
       width,
     });
-
-    placeAnnotations(y);
 
     // headers sit above the clip region so they don't scroll with zoom;
     // appended to the column group, so x is column-local
@@ -306,7 +300,9 @@ export default {
         classLabel,
         columnWidth: column.width,
         layerColumn,
-        currentY: () => zy,
+        // closes over the zoom drive declared below; pointer events
+        // can't fire before render completes, so the read is safe
+        currentY: () => current(),
       });
 
       columnPlacers.push(placeHandles);
@@ -316,8 +312,6 @@ export default {
       columnPlacers.forEach((place) => place(y1));
     };
 
-    placeColumns(y);
-
     crosshair(svg, {
       series,
       vertical,
@@ -325,10 +319,13 @@ export default {
       marginLeft,
       marginRight,
       width,
-      currentY: () => zy,
+      currentY: () => current(),
     });
 
-    verticalZoom(svg, {
+    // last on purpose: the zoom drive appends the brush overlay, which
+    // must stay on top of everything gesture-sensitive. It runs the
+    // initial placement pass and re-places on every zoom
+    const current = verticalZoom(svg, {
       y,
       width,
       height,
@@ -336,15 +333,7 @@ export default {
       marginRight,
       marginTop,
       marginBottom,
-      onZoom: (zy1) => {
-        zy = zy1;
-
-        update(zy);
-
-        placeOverlays(zy);
-        placeAnnotations(zy);
-        placeColumns(zy);
-      },
+      placers: [place, placeOverlays, placeAnnotations, placeColumns],
     });
 
     return () => controller.abort();

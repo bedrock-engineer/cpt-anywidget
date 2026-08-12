@@ -18,6 +18,7 @@ dev = [
     "anywidget[dev]>=0.11.0",
     "brodata>=0.1.8",
     "marimo>=0.23.13",
+    "pytest>=8",
 ]
 jupyter = [
     "jupyterlab>=4.6.2",
