@@ -70,11 +70,11 @@ export function stripLayout({
 
   const endPad = halfExtent(groups[0]) + halfExtent(groups[groups.length - 1]);
   const chrome = marginLeft + marginRight + stripWidth;
-  const svgWidth = Math.max(
-    width,
-    Math.ceil(chrome + endPad + minScale * span),
-    chrome + (n - 1) * pitch,
-  );
+  // the room true chainage needs at the collision-free px/m floor
+  const trueScaleWidth = Math.ceil(chrome + endPad + minScale * span);
+  // the bare minimum for n strips one pitch apart, chainage ignored
+  const packedWidth = chrome + (n - 1) * pitch;
+  const svgWidth = Math.max(width, trueScaleWidth, packedWidth);
 
   const innerLeft = marginLeft + stripWidth / 2;
   const innerRight = svgWidth - marginRight - stripWidth / 2;

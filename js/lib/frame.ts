@@ -29,6 +29,14 @@ export const yAxisFor =
       .attr("transform", `translate(${marginLeft},0)`)
       .call(d3.axisLeft(y1).ticks(height / 60));
 
+/** right vertical axis at [x]; re-call with the zoomed scale to redraw */
+export const yAxisRightFor =
+  (x: number, height: number) =>
+  (g: AnySelection<SVGGElement>, y1: VerticalScale) =>
+    g
+      .attr("transform", `translate(${x},0)`)
+      .call(d3.axisRight(y1).ticks(height / 60));
+
 /** horizontal gridlines spanning [x1, x2] at the vertical axis ticks */
 export const yGridFor =
   ({ x1, x2, height }: { x1: number; x2: number; height: number }) =>

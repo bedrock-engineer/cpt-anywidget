@@ -1,9 +1,16 @@
 import * as d3 from "./d3";
 import { assignClass, dragBoundary, merge, splitAt } from "./layer-edits";
-import { placeLayerColumn } from "./layers";
+import { labelMargin, placeLayerColumn } from "./layers";
 import { pieAngles, wedgeAt } from "./pie-menu";
 import type { LayerColumn } from "./layers";
 import type { AnySelection, Layer, Placer, SoilClass, VerticalScale } from "./types";
+
+// the structure lane along the edit column's outer edge, where
+// boundary-structure edits (split/merge) live; the caller grows the
+// svg by laneExtent when the edit column exists
+export const laneGap = 2;
+export const laneWidth = 14;
+export const laneExtent = laneGap + laneWidth;
 
 interface EditableColumn {
   model: {
@@ -14,22 +21,29 @@ interface EditableColumn {
   signal: AbortSignal;
   layersG: AnySelection<SVGGElement>;
   handlesG: AnySelection<SVGGElement>;
+  /** unclipped sibling of the column body for the structure lane */
+  laneG: AnySelection<SVGGElement>;
   editedLayers: Layer[];
   soilClasses: SoilClass[];
   classLabel: Map<string, string>;
   columnWidth: number;
+  /** pixel extent of the plot area, for the lane's static strip */
+  plotTop: number;
+  plotBottom: number;
   layerColumn: LayerColumn;
   currentY: () => VerticalScale;
 }
 
-// the manually editable layer column: drag a boundary to move it,
-// double-click a layer to split it there, option-click a boundary to
-// merge (the upper layer wins), press a layer and drag toward a wedge
-// to pick its class from the soil-class pie (release commits; a
-// dead-zone release keeps the pie open for click-to-pick). The edit
-// rules live in layer-edits.ts as pure operations; this module is the
-// gesture adapter: it translates pointer events into operations, swaps
-// in the returned stack when the reference changed (rebinding the
+// the manually editable layer column. Every edit has its own visible
+// zone, so a click means one thing wherever it lands: drag a boundary
+// strip to move it; the structure lane beside the column hosts split
+// and merge (hover previews the edit, click commits); click a layer
+// body to pick its class from the soil-class pie — or press and drag
+// toward a wedge as the fast path (release commits; a dead-zone
+// release keeps the pie open for click-to-pick). The edit rules live
+// in layer-edits.ts as pure operations; this module is the gesture
+// adapter: it translates pointer events into operations, swaps in the
+// returned stack when the reference changed (rebinding the
 // index-keyed joins), and syncs copies back through the model.
 // Returns the handle placer for the zoom loop — layer-rect placement
 // rides the caller's shared column placer. currentY() returns the
@@ -40,10 +54,13 @@ export function editableColumn({
   signal,
   layersG,
   handlesG,
+  laneG,
   editedLayers,
   soilClasses,
   classLabel,
   columnWidth,
+  plotTop,
+  plotBottom,
   layerColumn,
   currentY,
 }: EditableColumn): Placer {
@@ -60,40 +77,10 @@ export function editableColumn({
     model.save_changes();
   };
 
-  // merge affordance: while alt/option is held the boundary strips read
-  // as clickable instead of draggable. window-level listeners because
-  // the svg only gets key events when focused; blur resets so the
-  // cursor can't stick when the window loses focus mid-hold. `signal`
-  // detaches them when the widget is destroyed
-  let altHeld = false;
-
-  // no built-in cursor means "delete", so the merge cursor is an inline
-  // svg trash bin — drawn twice, a white halo under black strokes, so it
-  // reads on any layer color. hotspot 9 9 centers it on the pointer;
-  // "pointer" is the fallback where svg cursors are unsupported (Safari)
-  const binShape =
-    '<path d="M3 6h18M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6M10 11v6M14 11v6"/>';
-
-  const binCursor = `url("data:image/svg+xml,${encodeURIComponent(
-    `<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke-linecap="round" stroke-linejoin="round"><g stroke="white" stroke-width="4.5">${binShape}</g><g stroke="black" stroke-width="2">${binShape}</g></svg>`,
-  )}") 9 9, pointer`;
-
-  const handleCursor = () => (altHeld ? binCursor : "ns-resize");
-
-  const reflectAltKey = (event: Event) => {
-    altHeld = event.type === "blur" ? false : (event as KeyboardEvent).altKey;
-    handlesG.selectAll("rect.handle").attr("cursor", handleCursor());
-  };
-
-  for (const type of ["keydown", "keyup", "blur"]) {
-    window.addEventListener(type, reflectAltKey, { signal });
-  }
-
   let dragChanged = false;
 
   const dragHandler = d3
     .drag<SVGRectElement, number>()
-    .filter((event) => !event.altKey) // option-click is the merge gesture, not a drag
     // anchor the gesture to the boundary value, so grabbing the strip
     // slightly off-center doesn't make the boundary jump
     .subject((event, i) => ({
@@ -128,30 +115,150 @@ export function editableColumn({
     parent
       .selectAll<SVGRectElement, number>("rect.handle")
       .data(d3.range(layers.length - 1))
-      .join("rect")
-      .attr("class", "handle")
-      .attr("x", 0)
-      .attr("width", columnWidth)
-      .attr("height", 9)
-      .attr("fill", "transparent")
-      .attr("cursor", handleCursor())
-      .call(dragHandler)
-      // merge: option-click deletes this boundary; the upper layer
-      // absorbs the lower one and keeps its own class
-      .on("click", (event: MouseEvent, i) => {
-        if (!event.altKey) {
-          return;
-        }
+      .join((enter) =>
+        enter
+          .append("rect")
+          .attr("class", "handle")
+          .attr("x", 0)
+          .attr("width", columnWidth)
+          .attr("height", 9)
+          .attr("fill", "transparent")
+          .attr("cursor", "ns-resize")
+          .call(dragHandler),
+      );
 
-        const next = merge(layers, i);
-        if (next === layers) {
-          return;
-        }
+  // the structure lane: a persistent strip along the column's outer
+  // edge hosting the boundary-structure edits, each previewed on hover
+  // before a click commits it — near a boundary an × offers to merge
+  // it away (upper layer absorbs, keeps its class), anywhere else a
+  // dashed insertion line tracks the pointer's depth and a click
+  // splits there. Stateless: click re-derives the target, so preview
+  // and commit can't disagree
+  const laneX = columnWidth + laneGap;
+  const snapPx = 6; // pointer-to-boundary distance that reads as "this boundary"
 
-        layers = next;
-        updateEditColumn();
-        syncEditedLayers();
-      });
+  const laneHit = laneG
+    .append("rect")
+    .attr("x", laneX)
+    .attr("y", plotTop)
+    .attr("width", laneWidth)
+    .attr("height", plotBottom - plotTop)
+    .attr("fill", "#f6f6f6")
+    .attr("stroke", "#ddd")
+    .attr("cursor", "pointer");
+
+  // previews sit over the hit rect; pointer-events off so they can't
+  // steal the hover that placed them
+  const laneLine = laneG
+    .append("line")
+    .attr("x1", labelMargin)
+    .attr("x2", laneX + laneWidth)
+    .attr("stroke-width", 1.5)
+    .attr("pointer-events", "none")
+    .attr("display", "none");
+
+  const laneGlyph = laneG
+    .append("text")
+    .attr("x", laneX + laneWidth / 2)
+    .attr("text-anchor", "middle")
+    .attr("dy", "0.32em")
+    .attr("font-size", 12)
+    .attr("font-weight", "bold")
+    .attr("pointer-events", "none")
+    .attr("display", "none");
+
+  // at: the preview's pixel anchor — the boundary for a merge, the
+  // pointer for a split
+  type LaneTarget =
+    | { kind: "merge"; boundary: number; at: number }
+    | { kind: "split"; layer: number; value: number; at: number }
+    | null;
+
+  // what the lane offers at pixel py: the nearest internal boundary
+  // within snapPx, else the containing layer and the inverted depth
+  const laneTarget = (py: number): LaneTarget => {
+    const y1 = currentY();
+
+    let best = snapPx;
+    let nearest: LaneTarget = null;
+    for (let i = 0; i < layers.length - 1; i++) {
+      const by = y1(layers[i].bottom);
+      if (Math.abs(by - py) < best) {
+        best = Math.abs(by - py);
+        nearest = { kind: "merge", boundary: i, at: by };
+      }
+    }
+    if (nearest) {
+      return nearest;
+    }
+
+    const value = y1.invert(py);
+    // orientation-agnostic containment (depth: top < bottom, nap: reverse)
+    const layer = layers.findIndex((l) => (value - l.top) * (value - l.bottom) <= 0);
+
+    return layer === -1 ? null : { kind: "split", layer, value, at: py };
+  };
+
+  const hideLanePreview = () => {
+    laneLine.attr("display", "none");
+    laneGlyph.attr("display", "none");
+  };
+
+  // merge previews the boundary that disappears (solid, alert red);
+  // split previews the boundary that appears (dashed, at the pointer)
+  const previewLane = (py: number) => {
+    const target = laneTarget(py);
+    if (!target) {
+      hideLanePreview();
+      return;
+    }
+
+    const merging = target.kind === "merge";
+    const color = merging ? "#c0392b" : "#444";
+
+    laneLine
+      .attr("display", null)
+      .attr("y1", target.at)
+      .attr("y2", target.at)
+      .attr("stroke", color)
+      .attr("stroke-dasharray", merging ? null : "4,3");
+
+    laneGlyph
+      .attr("display", null)
+      .attr("y", target.at)
+      .attr("fill", color)
+      .text(merging ? "×" : "+");
+  };
+
+  laneHit
+    .on("pointermove", (event: PointerEvent) => previewLane(d3.pointer(event)[1]))
+    .on("pointerleave", hideLanePreview)
+    // rapid successive lane clicks must not reach the svg's dblclick
+    // zoom reset
+    .on("dblclick", (event: MouseEvent) => event.stopPropagation())
+    .on("click", (event: MouseEvent) => {
+      closePalette();
+
+      const py = d3.pointer(event)[1];
+      const target = laneTarget(py);
+      if (!target) {
+        return;
+      }
+
+      const next =
+        target.kind === "merge"
+          ? merge(layers, target.boundary)
+          : splitAt(layers, target.layer, target.value);
+
+      if (next === layers) {
+        return; // too thin to split
+      }
+
+      layers = next;
+      updateEditColumn();
+      syncEditedLayers();
+      previewLane(py); // the stack under the pointer just changed
+    });
 
   // class-picker pie: an html overlay div holding its own small svg,
   // positioned in el's css-pixel space — the main svg is scaled by
@@ -224,29 +331,31 @@ export function editableColumn({
     .attr("font-size", 10)
     .attr("fill", "#333");
 
-  let paletteTimer: number | undefined;
-
   // press-drag-release state: pointerdown on a layer arms the pie,
-  // which opens the moment the pointer moves (drag intent) or after a
-  // short hold — snappier than the click fallback, which has to wait
-  // out the double-click window before it may show anything
-  const holdOpenMs = 150;
+  // which opens the moment the pointer moves (drag intent); a quick
+  // stationary click opens it on release instead
   const dragSlop = 4; // movement in px that reads as drag intent
 
   let press: { x: number; y: number; layer: Layer } | null = null;
-  let holdTimer: number | undefined;
   let gestureOpen = false; // the pie is open with the button still down
   let suppressClick = false; // a gesture just ran; swallow its trailing click
 
+  // the layer the open pie edits and the armed wedge — shared by
+  // pointer and keyboard, so arrows pick up from where a drag armed
+  let pieFor: Layer | null = null;
+  let armedIndex: number | null = null;
+
   const closePalette = () => {
-    clearTimeout(paletteTimer);
-    clearTimeout(holdTimer);
     press = null;
     gestureOpen = false;
+    pieFor = null;
+    armedIndex = null;
     palette.style("display", "none");
   };
 
   const openPalette = (x: number, y: number, layer: Layer) => {
+    pieFor = layer;
+
     palette
       .style("display", null)
       .style("left", `${x - pieSize / 2}px`)
@@ -255,15 +364,11 @@ export function editableColumn({
     // the current class stays in place and selectable (a no-op commit)
     // so every layer presents the identical pie — only marked
     slice.classed("active", (d) => d.data.name === layer.class);
-    slice.classed("armed", false);
-
-    pieCenter.text(classLabel.get(layer.class!) ?? "—");
-
-    slice.on("click", (_, d) => commitClass(layer, d.data));
+    armWedge(null);
   };
 
-  const commitClass = (layer: Layer, picked: SoilClass) => {
-    const next = assignClass(layers, layers.indexOf(layer), picked.name);
+  const commitClass = (picked: SoilClass) => {
+    const next = assignClass(layers, layers.indexOf(pieFor!), picked.name);
 
     if (next !== layers) {
       layers = next;
@@ -274,6 +379,10 @@ export function editableColumn({
     closePalette();
   };
 
+  // click-to-pick, bound once: pieFor names the target layer for the
+  // pie's whole lifetime
+  slice.on("click", (_, d) => commitClass(d.data));
+
   // the wedge on the press→pointer bearing: hit-tested against the
   // pie layout's own arc angles (pie-menu.ts), with the pie's inner
   // hole as the dead zone
@@ -281,24 +390,17 @@ export function editableColumn({
 
   // mid-gesture feedback: highlight the armed wedge and preview its
   // label in the center readout (back to the current class in the
-  // dead zone)
-  const armWedge = (index: number | null, layer: Layer) => {
+  // dead zone). The armed wedge is also what a release or Enter
+  // commits, so preview and commit can't disagree
+  const armWedge = (index: number | null) => {
+    armedIndex = index;
     slice.classed("armed", (d) => d.index === index);
 
     pieCenter.text(
       index == null
-        ? (classLabel.get(layer.class!) ?? "—")
+        ? (classLabel.get(pieFor!.class!) ?? "—")
         : (soilClasses[index].label ?? soilClasses[index].name),
     );
-  };
-
-  const openGesture = () => {
-    if (!press) {
-      return;
-    }
-
-    gestureOpen = true;
-    openPalette(press.x, press.y, press.layer);
   };
 
   // window-level so the drag keeps tracking over the pie overlay and
@@ -321,39 +423,33 @@ export function editableColumn({
           return;
         }
 
-        clearTimeout(holdTimer);
-        openGesture();
+        gestureOpen = true;
+        openPalette(x, y, layer);
       }
 
-      armWedge(wedgeUnder(dx, dy), layer);
+      armWedge(wedgeUnder(dx, dy));
     },
     { signal },
   );
 
   window.addEventListener(
     "pointerup",
-    (event) => {
+    () => {
       if (!press) {
         return;
       }
 
-      clearTimeout(holdTimer);
-
-      const { x, y, layer } = press;
       press = null;
 
       if (!gestureOpen) {
-        return; // a quick click — the click fallback takes it from here
+        return; // a quick click — the click handler opens the pie
       }
 
       gestureOpen = false;
       suppressClick = true;
 
-      const [px, py] = d3.pointer(event, el);
-      const index = wedgeUnder(px - x, py - y);
-
-      if (index != null) {
-        commitClass(layer, soilClasses[index]);
+      if (armedIndex != null) {
+        commitClass(soilClasses[armedIndex]);
       }
       // a dead-zone release keeps the pie open for click-to-pick
     },
@@ -377,20 +473,63 @@ export function editableColumn({
     { capture: true, signal },
   );
   window.addEventListener("wheel", closePalette, { signal });
-  window.addEventListener("keydown", (event) => event.key === "Escape" && closePalette(), {
-    signal,
-  });
 
-  // classify: press a layer to arm the pie under the pointer — hold or
-  // drag to open, release over (or beyond) a wedge to commit. A quick
-  // click never opens mid-gesture, so it falls back to the delayed
-  // open, one double-click beat later, keeping the first click of a
-  // split from flashing the popup; detail > 1 marks the second click
+  // keyboard picking while the pie is open: arrows walk the wedges
+  // clockwise/counter-clockwise from the layer's current class,
+  // Enter or Space commits the armed wedge, Escape dismisses. Same
+  // armWedge feedback as the drag, so both inputs read identically
+  const keyStep: Record<string, number> = {
+    ArrowRight: 1,
+    ArrowDown: 1,
+    ArrowLeft: -1,
+    ArrowUp: -1,
+  };
+
+  window.addEventListener(
+    "keydown",
+    (event) => {
+      if (event.key === "Escape") {
+        closePalette();
+        return;
+      }
+
+      if (!pieFor) {
+        return;
+      }
+
+      const step = keyStep[event.key];
+
+      if (step != null) {
+        event.preventDefault(); // arrows would scroll the notebook
+
+        // walk from the armed wedge, else the layer's current class;
+        // a classless layer starts on the wedge nearest 12 o'clock in
+        // the pressed direction
+        const count = soilClasses.length;
+        const active = soilClasses.findIndex((c) => c.name === pieFor!.class);
+        const from = armedIndex ?? (active >= 0 ? active : step > 0 ? -1 : 0);
+
+        armWedge((((from + step) % count) + count) % count);
+      } else if ((event.key === "Enter" || event.key === " ") && armedIndex != null) {
+        event.preventDefault();
+        commitClass(soilClasses[armedIndex]);
+      }
+    },
+    { signal },
+  );
+
+  // classify: click a layer and the pie opens under the pointer,
+  // immediately — the lane owns split, so no double-click gesture is
+  // left to disambiguate against. Press-and-drag is the fast path:
+  // the pie opens on drag intent, release over (or beyond) a wedge
+  // commits; its trailing click is swallowed. re-applied per join so
+  // rects entering after an edit pick up the handlers
   const classifyLayers = (parent: AnySelection<SVGGElement>) =>
     parent
       .selectAll<SVGRectElement, Layer>("g.layer rect")
+      .attr("cursor", "pointer")
       .on("pointerdown", (event: PointerEvent, d) => {
-        if (event.button !== 0 || event.altKey) {
+        if (event.button !== 0) {
           return;
         }
 
@@ -398,8 +537,6 @@ export function editableColumn({
 
         suppressClick = false;
         press = { x: px, y: py, layer: d };
-        clearTimeout(holdTimer);
-        holdTimer = setTimeout(openGesture, holdOpenMs);
       })
       .on("click", (event: MouseEvent, d) => {
         if (suppressClick) {
@@ -407,41 +544,8 @@ export function editableColumn({
           return;
         }
 
-        if (event.detail !== 1) {
-          return;
-        }
-
         const [px, py] = d3.pointer(event, el);
-
-        clearTimeout(paletteTimer);
-        paletteTimer = setTimeout(() => openPalette(px, py, d), 200);
-      });
-
-  // split: double-click inside a layer inserts a boundary at the
-  // pointer's depth; both halves keep the layer's class — click either
-  // one to reclassify it. re-applied per join so rects entering after
-  // an edit pick up the handler
-  const splitLayers = (parent: AnySelection<SVGGElement>) =>
-    parent
-      .selectAll<SVGRectElement, Layer>("g.layer rect")
-      .attr("cursor", "crosshair")
-      .on("dblclick", (event: MouseEvent, d) => {
-        // the svg's own dblclick resets the zoom — keep it out of this
-        event.stopPropagation();
-
-        // the first click of this gesture scheduled the palette
-        closePalette();
-
-        // the column group is only translated in x, so local y is svg y
-        const next = splitAt(layers, layers.indexOf(d), currentY().invert(d3.pointer(event)[1]));
-
-        if (next === layers) {
-          return; // too thin to split
-        }
-
-        layers = next;
-        updateEditColumn();
-        syncEditedLayers();
+        openPalette(px, py, d);
       });
 
   const placeHandles: Placer = (y1) =>
@@ -456,17 +560,23 @@ export function editableColumn({
     placeHandles(y1);
   };
 
+  const joinEditColumn = () => {
+    layersG.call(layerColumn, layers).call(classifyLayers);
+
+    handlesG.call(boundaryHandles);
+  };
+
   // full rebuild after a structural edit (split/merge): re-join layers
   // and handles, then re-place everything at the current zoom
   const updateEditColumn = () => {
-    layersG.call(layerColumn, layers).call(splitLayers).call(classifyLayers);
-
-    handlesG.call(boundaryHandles);
-
+    joinEditColumn();
     placeEditColumn(currentY());
   };
 
-  updateEditColumn();
+  // join only: currentY() closes over the zoom drive, which the caller
+  // constructs after this returns — its initial placement (this column
+  // is in the placers array) does the first place
+  joinEditColumn();
 
   return placeHandles;
 }

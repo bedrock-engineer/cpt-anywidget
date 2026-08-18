@@ -5,7 +5,9 @@ description = "anywidget viewers for CPT soundings and geotechnical boreholes (B
 readme = "README.md"
 requires-python = ">=3.13"
 dependencies = [
+    "anthropic>=0.122.0",
     "anywidget>=0.9",
+    "pydantic-ai-slim>=2.31.0",
 ]
 
 [project.optional-dependencies]
@@ -17,6 +19,7 @@ bro = ["brodata>=0.1.8"]
 dev = [
     "anywidget[dev]>=0.11.0",
     "brodata>=0.1.8",
+    "d-geolib-plus",
     "marimo>=0.23.13",
     "pytest>=8",
 ]
@@ -35,6 +38,9 @@ cache-keys = [
     { file = "src/cpt_anywidget/static/*.js" },
     { file = "src/cpt_anywidget/*.css" },
 ]
+
+[tool.uv.sources]
+d-geolib-plus = { git = "https://github.com/Deltares/GEOLib-Plus" }
 
 [build-system]
 requires = ["hatchling"]

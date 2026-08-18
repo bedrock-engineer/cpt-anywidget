@@ -1,5 +1,4 @@
-import { buildSeries, lineFor } from "./channels";
-import * as d3 from "./d3";
+import { axisSlot, buildSeries, channelAxis, channelTitle, lineFor } from "./channels";
 import { makeVerticalScale, plotClip, verticalAxisTitle, yAxisFor, yGridFor } from "./frame";
 import type {
   AnySelection,
@@ -81,7 +80,6 @@ export function cptChart(
   });
 
   // one slot per x-axis, stacked outward from the plot edge
-  const axisSlot = 30;
   const bottomSeries = series.filter((s) => s.side === "bottom");
   const topSeries = series.filter((s) => s.side === "top");
   const marginTop = margin.top + axisSlot * topSeries.length;
@@ -96,10 +94,7 @@ export function cptChart(
   const xAxis = (g: AnySelection<SVGGElement>, s: Series, slotY: number) =>
     g
       .attr("transform", `translate(0,${slotY})`)
-      .call((s.side === "bottom" ? d3.axisBottom : d3.axisTop)(s.x).ticks(width / 100))
-      .call((g) => g.selectAll("text").attr("fill", s.color))
-      .call((g) => g.selectAll("line").attr("stroke", s.color))
-      .call((g) => g.select(".domain").attr("stroke", s.color))
+      .call(channelAxis, s, { ticks: width / 100 })
       .call((g) =>
         g
           .append("text")
@@ -112,7 +107,8 @@ export function cptChart(
           .attr("fill", s.color)
           .attr("text-anchor", s.side === "bottom" ? "end" : "start")
           .attr("font-weight", "bold")
-          .text(s.unit ? `${s.label} [${s.unit}]` : s.label),
+          .attr("font-size", 12)
+          .text(channelTitle(s)),
       );
 
   // vertical gridlines follow the innermost bottom axis (qc by default)

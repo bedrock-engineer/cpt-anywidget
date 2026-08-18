@@ -8,7 +8,7 @@ type PlacedBand = Band & { top: number; bottom: number };
 // strip left of the rects for depth labels, sized so a signed
 // two-decimal NAP value ("+12.50", ~31px at 10px font) clears the clip
 // edge 8px into the inter-column gap
-const labelMargin = 28;
+export const labelMargin = 28;
 const labelTextX = labelMargin - 4; // right edge of the depth text
 const leaderEndX = labelMargin - 3; // leaders stop just short of the text
 // both Bézier control points sit at the midpoint x, so the leader

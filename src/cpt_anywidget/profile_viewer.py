@@ -42,10 +42,13 @@ class ProfileViewer(anywidget.AnyWidget):
 
     _esm = _HERE / "static" / "profile-viewer.js"
 
-    # the strips: [{"name", "distance", "data": {...}}, ...] — distance
-    # is the chainage along the profile line in m; data follows the
-    # cptData contract (equal-length lists, None for missing samples,
-    # sorted so the first sample is the topmost)
+    # the strips: [{"name", "distance", "data": {...}, "layers"?}, ...]
+    # — distance is the chainage along the profile line in m; data
+    # follows the cptData contract (equal-length lists, None for missing
+    # samples, sorted so the first sample is the topmost); layers
+    # ([{"top", "bottom", "color"?, "label"?}, ...], boundaries in the
+    # vertical coordinate) render as a semi-transparent full-width
+    # backdrop behind the strip's curves
     cpts = traitlets.List().tag(sync=True)
 
     # which data column is the vertical coordinate — a key string or a
@@ -60,12 +63,10 @@ class ProfileViewer(anywidget.AnyWidget):
     # shared by all strips, the vertical override is keyed by verticalKey
     axisLimits = traitlets.Dict().tag(sync=True)
 
-    # the channel every strip plots: a column key or {"key", "label"?,
-    # "unit"?, "color"?} merged over the front end's display defaults;
-    # "" = coneResistance
-    channel = traitlets.Union(
-        [traitlets.Unicode(), traitlets.Dict()], default_value=""
-    ).tag(sync=True)
+    # the channels every strip plots, stacked axis slots in list order:
+    # column keys or {"key", "label"?, "unit"?, "color"?} dicts merged
+    # over the front end's display defaults; [] = coneResistance only
+    channels = traitlets.List().tag(sync=True)
 
     # profile-space lines over the strips: [{"points" | "levels", "label"?,
     # "color"?, "dash"?, "width"?}, ...]. "points": [[distance, v], ...] is
@@ -106,7 +107,8 @@ class ProfileViewer(anywidget.AnyWidget):
         positions=None,
         name="name",
         vertical=None,
-        channel=None,
+        channels=None,
+        layers=None,
         limits=None,
         **kwargs,
     ):
@@ -126,8 +128,14 @@ class ProfileViewer(anywidget.AnyWidget):
         ``vertical`` — the vertical-coordinate column (→ ``verticalKey``):
         a column-name string, :class:`~cpt_anywidget.vertical.Vertical`
         binding, or raw spec dict.
-        ``channel`` — the plotted channel: a column-name string,
-        :class:`Channel` binding, or raw dict (→ ``channel``).
+        ``channels`` — the plotted channels, mixing column-name strings,
+        :class:`Channel` bindings, and raw dicts (→ ``channels``);
+        omitted = cone resistance only.
+        ``layers`` — {name: [{"top", "bottom", "color"?, "label"?},
+        ...]} interpreted layers per CPT, boundaries in the vertical
+        coordinate, drawn as a semi-transparent backdrop filling the
+        strip behind its curves. Names absent from ``data`` raise;
+        ``data`` names without layers just plot curves.
         ``limits`` — {column: (min, max)} axis overrides
         (→ ``axisLimits``); the vertical pair is oriented to the render
         direction, so callers can pass it either way round.
@@ -148,12 +156,21 @@ class ProfileViewer(anywidget.AnyWidget):
             missing = sorted(set(groups) - set(positions))
             if missing:
                 raise ValueError(f"positions missing for {missing}")
+            if layers:
+                unknown = sorted(set(layers) - set(groups))
+                if unknown:
+                    raise ValueError(f"layers for unknown CPTs {unknown}")
             kwargs["cpts"] = sorted(
                 (
                     {
                         "name": n,
                         "distance": float(positions[n]),
                         "data": tidy(cols, vert),
+                        **(
+                            {"layers": list(layers[n])}
+                            if layers and n in layers
+                            else {}
+                        ),
                     }
                     for n, cols in groups.items()
                 ),
@@ -163,10 +180,10 @@ class ProfileViewer(anywidget.AnyWidget):
             kwargs["verticalKey"] = (
                 vertical.spec() if isinstance(vertical, Vertical) else vertical
             )
-        if channel is not None:
-            kwargs["channel"] = (
-                channel.spec() if isinstance(channel, Channel) else channel
-            )
+        if channels is not None:
+            kwargs["channels"] = [
+                c.spec() if isinstance(c, Channel) else c for c in channels
+            ]
         if limits is not None:
             kwargs["axisLimits"] = {
                 k: sorted(v, reverse=descending) if k == vert.key else list(v)

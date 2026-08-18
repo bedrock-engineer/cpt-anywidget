@@ -51,7 +51,7 @@ function number$2(x2) {
 }
 const ascendingBisect = bisector(ascending$1);
 const bisectRight = ascendingBisect.right;
-bisector(number$2).center;
+const bisectCenter = bisector(number$2).center;
 const e10 = Math.sqrt(50), e5 = Math.sqrt(10), e2 = Math.sqrt(2);
 function tickSpec(start2, stop, count) {
   const step = (stop - start2) / Math.max(0, count), power = Math.floor(Math.log10(step)), error = step / Math.pow(10, power), factor = error >= e10 ? 10 : error >= e5 ? 5 : error >= e2 ? 2 : 1;
@@ -205,6 +205,12 @@ function axis(orient, scale) {
     return arguments.length ? (offset = +_, axis2) : offset;
   };
   return axis2;
+}
+function axisTop(scale) {
+  return axis(top, scale);
+}
+function axisRight(scale) {
+  return axis(right, scale);
 }
 function axisBottom(scale) {
   return axis(bottom, scale);
@@ -3982,6 +3988,13 @@ function resolveChannel(raw, fallbackColor) {
     ...Object.fromEntries(Object.entries(spec).filter(([, v]) => v != null))
   };
 }
+const axisSlot = 30;
+const channelTitle = (s) => s.unit ? `${s.label} [${s.unit}]` : s.label;
+function channelAxis(g, s, { ticks: ticks2, tickSizeOuter = 6 }) {
+  g.call(
+    (s.side === "bottom" ? axisBottom : axisTop)(s.x).ticks(ticks2).tickSizeOuter(tickSizeOuter)
+  ).call((g2) => g2.selectAll("text").attr("fill", s.color)).call((g2) => g2.selectAll("line").attr("stroke", s.color)).call((g2) => g2.select(".domain").attr("stroke", s.color));
+}
 function makeXScale(values, range, limits) {
   const finite = (values ?? []).filter((v) => v != null);
   if (!finite.length) {
@@ -4049,6 +4062,7 @@ function makeVerticalScale(fallback, range, limits) {
   return y2;
 }
 const yAxisFor = (marginLeft, height) => (g, y1) => g.attr("transform", `translate(${marginLeft},0)`).call(axisLeft(y1).ticks(height / 60));
+const yAxisRightFor = (x2, height) => (g, y1) => g.attr("transform", `translate(${x2},0)`).call(axisRight(y1).ticks(height / 60));
 const yGridFor = ({ x1, x2, height }) => (g, y1) => g.attr("stroke", "currentColor").attr("stroke-opacity", 0.1).selectAll("line").data(y1.ticks(height / 60)).join("line").attr("x1", x1).attr("x2", x2).attr("y1", (d) => 0.5 + y1(d)).attr("y2", (d) => 0.5 + y1(d));
 function verticalAxisTitle(svg, label) {
   svg.append("text").attr("x", 0).attr("y", 14).attr("fill", "currentColor").attr("text-anchor", "start").attr("font-weight", "bold").text(label);
@@ -4059,16 +4073,22 @@ function plotClip(svg, prefix, { x: x2, y: y2, width, height }) {
   return id2;
 }
 const haloText = (text) => text.attr("stroke", "white").attr("stroke-width", 4).attr("paint-order", "stroke");
-function focusRig(svg, { marginLeft, ruleX2 }) {
+function focusRig(svg, {
+  marginLeft,
+  ruleX2,
+  readoutHost
+}) {
   const focus = svg.append("g").attr("display", "none").attr("pointer-events", "none");
   const rule = focus.append("line").attr("x1", marginLeft).attr("x2", ruleX2).attr("stroke", "currentColor").attr("stroke-opacity", 0.3);
-  const readout = focus.append("text").attr("x", marginLeft - 8).attr("dy", "0.32em").attr("text-anchor", "end").attr("font-size", 12).attr("font-weight", "bold").attr("fill", "currentColor").call(haloText);
+  const readoutGroup = readoutHost ? readoutHost.append("g").attr("display", "none").attr("pointer-events", "none") : focus;
+  const readout = readoutGroup.append("text").attr("x", marginLeft - 8).attr("dy", "0.32em").attr("text-anchor", "end").attr("font-size", 12).attr("font-weight", "bold").attr("fill", "currentColor").call(haloText);
+  const groups = readoutGroup === focus ? [focus] : [focus, readoutGroup];
   return {
     focus,
     rule,
     readout,
-    show: (ym) => focus.attr("display", null).attr("transform", `translate(0,${ym})`),
-    hide: () => focus.attr("display", "none")
+    show: (ym) => groups.forEach((g) => g.attr("display", null).attr("transform", `translate(0,${ym})`)),
+    hide: () => groups.forEach((g) => g.attr("display", "none"))
   };
 }
 function minimap(host, scroller, { stripWidth, height = 20, signal }) {
@@ -4228,11 +4248,9 @@ function stripLayout({
   }
   const endPad = halfExtent(groups[0]) + halfExtent(groups[groups.length - 1]);
   const chrome = marginLeft + marginRight + stripWidth;
-  const svgWidth = Math.max(
-    width,
-    Math.ceil(chrome + endPad + minScale * span),
-    chrome + (n - 1) * pitch
-  );
+  const trueScaleWidth = Math.ceil(chrome + endPad + minScale * span);
+  const packedWidth = chrome + (n - 1) * pitch;
+  const svgWidth = Math.max(width, trueScaleWidth, packedWidth);
   const innerLeft = marginLeft + stripWidth / 2;
   const innerRight = svgWidth - marginRight - stripWidth / 2;
   const mid = (innerLeft + innerRight) / 2;
@@ -4347,28 +4365,41 @@ const profileViewer = {
       once: true
     });
     const signal = controller.signal;
-    const cpts = [...model.get("cpts") ?? []].sort((a, b) => a.distance - b.distance);
+    const cpts = [...model.get("cpts") ?? []].sort(
+      (a, b) => ascending$1(a.distance, b.distance)
+    );
     const vert = resolveVertical(model.get("verticalKey"), "nap");
     const axisLimits = model.get("axisLimits") ?? {};
     const annotations = model.get("annotations") ?? [];
     const overlays = model.get("overlays") ?? [];
-    const channel = resolveChannel(model.get("channel") || "coneResistance", Tableau10[0]);
     let equal = model.get("equalSpacing") ?? false;
     const stripWidth = model.get("stripWidth") || 90;
     const width = model.get("width") || 700;
     const height = model.get("height") || 500;
     const vertOf = (c) => c.data[vert.key] ?? [];
-    const valuesOf = (c) => c.data[channel.key] ?? [];
     const allVert = cpts.flatMap(vertOf).filter((v) => v != null);
-    const x2 = makeXScale(cpts.flatMap(valuesOf), [0, stripWidth], axisLimits[channel.key]);
-    if (!cpts.length || !allVert.length || !x2) {
+    const requested = model.get("channels") ?? [];
+    const series = (requested.length ? requested : ["coneResistance"]).map((c, i) => {
+      const merged = resolveChannel(c, Tableau10[i % 10]);
+      return {
+        ...merged,
+        x: makeXScale(
+          cpts.flatMap((cpt) => cpt.data[merged.key] ?? []),
+          [0, stripWidth],
+          axisLimits[merged.key]
+        )
+      };
+    }).filter(
+      (s) => s.x !== null
+    );
+    if (!cpts.length || !allVert.length || !series.length) {
       select(el).append("div").text("no plottable CPT data");
       return;
     }
     const marginLeft = 50;
-    const marginRight = 20;
+    const marginRight = 40;
     const marginTop = 28;
-    const marginBottom = 62;
+    const marginBottom = 62 + axisSlot * (series.length - 1);
     const yBottom = height - marginBottom;
     const ordered = cpts.map(vertOf).find((v) => v.filter((s) => s != null).length >= 2);
     let descending2 = vert.up;
@@ -4403,12 +4434,30 @@ const profileViewer = {
     const toolbar = select(el).append("div").style("font", "12px system-ui, sans-serif").style("margin", "0 0 4px 2px");
     const toggle = toolbar.append("label").style("cursor", "pointer");
     const checkbox = toggle.append("input").attr("type", "checkbox").style("vertical-align", "-2px").property("checked", equal).on("change", (event) => {
-      model.set("equalSpacing", event.currentTarget.checked);
+      model.set(
+        "equalSpacing",
+        event.currentTarget.checked
+      );
       model.save_changes();
     });
     toggle.append("span").text(" equal spacing");
+    const legendEntries = [];
+    const seenLabels = /* @__PURE__ */ new Set();
+    for (const c of cpts) {
+      for (const l of c.layers ?? []) {
+        if (!l.label || seenLabels.has(l.label)) continue;
+        seenLabels.add(l.label);
+        legendEntries.push({ label: l.label, color: l.color ?? "#999" });
+      }
+    }
+    if (legendEntries.length) {
+      const item = select(el).append("div").style("font", "11px system-ui, sans-serif").style("display", "flex").style("flex-wrap", "wrap").style("gap", "2px 10px").style("margin", "0 0 4px 2px").selectAll("span.legend-item").data(legendEntries).join("span").attr("class", "legend-item").style("white-space", "nowrap");
+      item.append("span").style("display", "inline-block").style("width", "10px").style("height", "10px").style("margin-right", "4px").style("vertical-align", "-1px").style("background", (e) => e.color);
+      item.append("span").text((e) => e.label);
+    }
     const minimapHost = select(el).append("div");
-    const scroller = select(el).append("div").style("max-width", "100%").style("overflow-x", "auto");
+    const wrap = select(el).append("div").style("position", "relative").style("max-width", "100%");
+    const scroller = wrap.append("div").style("max-width", "100%").style("overflow-x", "auto");
     const svg = scroller.append("svg").attr("viewBox", [0, 0, curWidth, height].join(",")).attr("width", curWidth).attr("height", height).style("display", "block").style("user-select", "none").style("-webkit-user-select", "none");
     const clipId = plotClip(svg, "profile-clip", {
       x: marginLeft,
@@ -4422,7 +4471,9 @@ const profileViewer = {
       width: stripWidth,
       height: yBottom - marginTop
     });
+    const pinnedLeft = wrap.append("svg").attr("width", marginLeft + 1).attr("height", height).style("position", "absolute").style("left", "0").style("top", "0").style("pointer-events", "none");
     const yAxis = yAxisFor(marginLeft, height);
+    let yAxisR = yAxisRightFor(curWidth - marginRight, height);
     let yGrid = yGridFor({
       x1: marginLeft,
       x2: curWidth - marginRight,
@@ -4430,9 +4481,19 @@ const profileViewer = {
     });
     const gGrid = svg.append("g");
     const gy = svg.append("g");
+    const gyR = svg.append("g");
+    const gyPinned = pinnedLeft.append("g");
+    const haloTicks = (g) => g.selectAll("text").call(haloText);
+    const placeAxes = (y1) => {
+      gy.call(yAxis, y1);
+      gyR.call(yAxisR, y1);
+      haloTicks(gyPinned.call(yAxis, y1));
+    };
     verticalAxisTitle(svg, vert.label);
-    svg.append("text").attr("x", 0).attr("y", yBottom + 9).attr("dy", "0.71em").attr("text-anchor", "start").attr("font-size", 10).attr("font-weight", "bold").attr("fill", channel.color).text(channel.unit ? `${channel.label} [${channel.unit}]` : channel.label);
-    const chainY = yBottom + 32;
+    verticalAxisTitle(pinnedLeft, vert.label);
+    pinnedLeft.selectAll("text").call(haloText);
+    svg.selectAll("text.channel-label").data(series).join("text").attr("class", "channel-label").attr("x", 0).attr("y", (_, i) => yBottom + axisSlot * i + 9).attr("dy", "0.71em").attr("text-anchor", "start").attr("font-size", 10).attr("font-weight", "bold").attr("fill", (s) => s.color).text(channelTitle);
+    const chainY = yBottom + axisSlot * (series.length - 1) + 32;
     const gChain = svg.append("g").attr("transform", `translate(0,${chainY})`);
     const chainageAxis = chainageAxisFor(layout);
     gChain.call(chainageAxis, { equal, centers });
@@ -4440,18 +4501,23 @@ const profileViewer = {
       svg.append("text").attr("x", 0).attr("y", chainY + 9).attr("dy", "0.71em").attr("text-anchor", "start").attr("font-size", 10).attr("font-weight", "bold").attr("fill", "currentColor").text("distance [m]");
     }
     const strip = svg.selectAll("g.strip").data(cpts).join("g").attr("class", "strip");
+    const stripLayer = strip.append("g").attr("clip-path", `url(#${stripClipId})`).selectAll("rect").data((c) => c.layers ?? []).join("rect").attr("x", 0).attr("width", stripWidth).attr("fill", (l) => l.color ?? "#999").attr("fill-opacity", 0.8).attr("stroke", "white").attr("stroke-width", 0.5);
+    const placeLayers = (y1) => stripLayer.attr("y", (l) => Math.min(y1(l.top), y1(l.bottom))).attr("height", (l) => Math.abs(y1(l.bottom) - y1(l.top)));
     strip.append("rect").attr("class", "frame").attr("x", 0).attr("y", marginTop).attr("width", stripWidth).attr("height", yBottom - marginTop).attr("fill", "transparent");
-    strip.append("g").attr("transform", `translate(0,${yBottom})`).call(
-      axisBottom(x2).ticks(Math.max(2, stripWidth / 45)).tickSizeOuter(0)
-    );
-    const stripPath = strip.append("g").attr("clip-path", `url(#${stripClipId})`).append("path").attr("fill", "none").attr("stroke", channel.color).attr("stroke-width", 1);
+    strip.selectAll("g.channel-axis").data(() => series).join("g").attr("class", "channel-axis").attr("transform", (_, i) => `translate(0,${yBottom + axisSlot * i})`).each(function(s) {
+      select(this).call(channelAxis, s, {
+        ticks: Math.max(2, stripWidth / 45),
+        tickSizeOuter: 0
+      });
+    });
+    const stripPath = strip.append("g").attr("clip-path", `url(#${stripClipId})`).selectAll("path").data((c) => series.map((s) => ({ c, s }))).join("path").attr("fill", "none").attr("stroke", ({ s }) => s.color).attr("stroke-width", 1);
     const stripName = strip.append("text").attr("class", "name").attr("x", stripWidth / 2).attr("y", marginTop - 8).attr("text-anchor", "middle").attr("font-size", 11).text((d) => d.name);
-    const tracePath = (c, y1) => {
-      const values = valuesOf(c);
+    const tracePath = (c, s, y1) => {
+      const values = c.data[s.key] ?? [];
       const vertical = vertOf(c);
-      return line().defined((_, i) => values[i] != null && vertical[i] != null).x((_, i) => x2(values[i])).y((_, i) => y1(vertical[i]))(values);
+      return line().defined((_, i) => values[i] != null && vertical[i] != null).x((_, i) => s.x(values[i])).y((_, i) => y1(vertical[i]))(values);
     };
-    const placeTraces = (y1) => stripPath.attr("d", (d) => tracePath(d, y1));
+    const placeTraces = (y1) => stripPath.attr("d", ({ c, s }) => tracePath(c, s, y1));
     const placeProfileOverlays = profileOverlayLayer(svg, overlays, {
       names: cpts.map((c) => c.name),
       stripWidth,
@@ -4483,43 +4549,74 @@ const profileViewer = {
         x2: curWidth - marginRight,
         height
       });
+      yAxisR = yAxisRightFor(curWidth - marginRight, height);
       svg.select(`#${clipId} rect`).attr("width", curWidth - marginLeft - marginRight);
       rig.rule.attr("x2", curWidth - marginRight);
       const transform = (_, i) => `translate(${centers[i] - stripWidth / 2},0)`;
       if (animate) {
         const t = svg.transition().duration(600);
-        t.attr("width", curWidth).attr("viewBox", [0, 0, curWidth, height].join(","));
+        t.attr("width", curWidth).attr(
+          "viewBox",
+          [0, 0, curWidth, height].join(",")
+        );
         strip.transition(t).attr("transform", transform);
         gGrid.selectAll("line").transition(t).attr("x2", curWidth - marginRight);
+        gyR.transition(t).attr("transform", `translate(${curWidth - marginRight},0)`);
         gChain.transition(t).call(chainageAxis, { equal, centers });
         placeOverlays(y1, t);
       } else {
         svg.attr("width", curWidth).attr("viewBox", [0, 0, curWidth, height].join(","));
         strip.attr("transform", transform);
         gGrid.call(yGrid, y1);
+        gyR.call(yAxisR, y1);
         gChain.call(chainageAxis, { equal, centers });
         placeOverlays(y1);
       }
       placeAnnotations(y1);
       placeMinimap({ centers, contentWidth: curWidth });
     };
-    const rig = focusRig(svg, { marginLeft, ruleX2: curWidth - marginRight });
+    const rig = focusRig(svg, {
+      marginLeft,
+      ruleX2: curWidth - marginRight,
+      readoutHost: pinnedLeft
+    });
     placeStrips(false, y2);
     const formatVertical = format(vert.format);
     const stripIndexAt = (px) => {
       const i = centers.findIndex((c) => Math.abs(px - c) <= stripWidth / 2);
       return i === -1 ? null : i;
     };
+    const formatValue = format(".2f");
+    const bisectorDescend = bisector((d, x2) => x2 - d);
+    const bisectStrip = (vertical, value) => descending2 ? bisectorDescend.center(vertical, value) : bisectCenter(vertical, value);
+    const valueGroup = rig.focus.append("g").attr("display", "none");
+    const placeStripValues = (si, py) => {
+      const zy = current();
+      const c = si == null ? null : cpts[si];
+      const vertical = c ? vertOf(c) : [];
+      const i = c ? bisectStrip(vertical, zy.invert(py)) : 0;
+      const vi = vertical[i];
+      const entries = c && vi != null && Math.abs(zy(vi) - py) <= 8 ? series.map((s) => ({ s, v: c.data[s.key]?.[i] })).filter((e) => e.v != null) : [];
+      if (si == null || !entries.length) {
+        valueGroup.attr("display", "none");
+        return;
+      }
+      const flip = centers[si] + stripWidth / 2 + 76 > curWidth;
+      const x2 = centers[si] + (stripWidth / 2 + 6) * (flip ? -1 : 1);
+      valueGroup.attr("display", null).selectAll("text").data(entries).join("text").attr("x", x2).attr("y", (_, i2) => (i2 - (entries.length - 1) / 2) * 14).attr("dy", "0.32em").attr("text-anchor", flip ? "end" : "start").attr("font-size", 12).attr("fill", ({ s }) => s.color).call(haloText).text(({ s, v }) => `${s.label} ${formatValue(v)}`);
+    };
     svg.on("pointerenter pointermove", (event) => {
       const [px, py] = pointer(event);
       const inPlot = py >= marginTop && py <= yBottom && px >= marginLeft && px <= curWidth - marginRight;
-      svg.style("cursor", () => inPlot && stripIndexAt(px) != null ? "pointer" : null);
+      const si = inPlot ? stripIndexAt(px) : null;
+      svg.style("cursor", () => si != null ? "pointer" : null);
       if (!inPlot) {
         rig.hide();
         return;
       }
       rig.show(py);
       rig.readout.text(`${formatVertical(current().invert(py))} m`);
+      placeStripValues(si, py);
     });
     svg.on("pointerleave", () => {
       rig.hide();
@@ -4547,8 +4644,9 @@ const profileViewer = {
       marginTop,
       marginBottom,
       placers: [
-        (y1) => gy.call(yAxis, y1),
+        placeAxes,
         (y1) => gGrid.call(yGrid, y1),
+        placeLayers,
         placeTraces,
         placeOverlays,
         placeAnnotations

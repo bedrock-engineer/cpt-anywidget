@@ -9,7 +9,7 @@ import { crosshair } from "./lib/crosshair";
 import { plotClip } from "./lib/frame";
 import { resolveVertical } from "./lib/vertical";
 import { verticalZoom } from "./lib/zoom";
-import { editableColumn } from "./lib/editing";
+import { editableColumn, laneExtent } from "./lib/editing";
 import type {
   Annotation,
   AnySelection,
@@ -136,9 +136,9 @@ export default {
 
     // should this be configurable too?
     const margin = {
-      left: 60,
+      left: 70,
       right: 50,
-      top: 24,
+      top: 10,
       bottom: 10,
     };
     const marginLeft = margin.left;
@@ -182,11 +182,15 @@ export default {
 
     const { totalWidth, x0 } = layoutColumns(columns, width, column);
 
+    // the edit column carries the structure lane on its outer edge,
+    // past the slot layout's extent
+    const svgRight = totalWidth + (editedLayers.length ? laneExtent : 0);
+
     const svg = d3
       .select(el)
       .append("svg")
-      .attr("viewBox", [x0, 0, totalWidth - x0, height].join(","))
-      .attr("width", totalWidth - x0)
+      .attr("viewBox", [x0, 0, svgRight - x0, height].join(","))
+      .attr("width", svgRight - x0)
       .attr("height", height)
       .style("max-width", "100%")
       .style("height", "auto")
@@ -289,16 +293,23 @@ export default {
       const layersG = columnLayers.filter((d) => Boolean(d.editable));
       const handlesG = columnBody.filter((d) => Boolean(d.editable)).append("g");
 
+      // the structure lane sits outside the column clip — its strip and
+      // previews live in the lane's own x band and span the plot height
+      const laneG = gColumn.filter((d) => Boolean(d.editable)).append("g");
+
       const placeHandles = editableColumn({
         model,
         el,
         signal,
         layersG,
         handlesG,
+        laneG,
         editedLayers,
         soilClasses,
         classLabel,
         columnWidth: column.width,
+        plotTop: marginTop,
+        plotBottom: height - marginBottom,
         layerColumn,
         // closes over the zoom drive declared below; pointer events
         // can't fire before render completes, so the read is safe

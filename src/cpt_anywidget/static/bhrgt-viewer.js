@@ -3594,16 +3594,22 @@ function zoom() {
   return zoom2;
 }
 const haloText = (text) => text.attr("stroke", "white").attr("stroke-width", 4).attr("paint-order", "stroke");
-function focusRig(svg, { marginLeft, ruleX2 }) {
+function focusRig(svg, {
+  marginLeft,
+  ruleX2,
+  readoutHost
+}) {
   const focus = svg.append("g").attr("display", "none").attr("pointer-events", "none");
   const rule = focus.append("line").attr("x1", marginLeft).attr("x2", ruleX2).attr("stroke", "currentColor").attr("stroke-opacity", 0.3);
-  const readout = focus.append("text").attr("x", marginLeft - 8).attr("dy", "0.32em").attr("text-anchor", "end").attr("font-size", 12).attr("font-weight", "bold").attr("fill", "currentColor").call(haloText);
+  const readoutGroup = readoutHost ? readoutHost.append("g").attr("display", "none").attr("pointer-events", "none") : focus;
+  const readout = readoutGroup.append("text").attr("x", marginLeft - 8).attr("dy", "0.32em").attr("text-anchor", "end").attr("font-size", 12).attr("font-weight", "bold").attr("fill", "currentColor").call(haloText);
+  const groups = readoutGroup === focus ? [focus] : [focus, readoutGroup];
   return {
     focus,
     rule,
     readout,
-    show: (ym) => focus.attr("display", null).attr("transform", `translate(0,${ym})`),
-    hide: () => focus.attr("display", "none")
+    show: (ym) => groups.forEach((g) => g.attr("display", null).attr("transform", `translate(0,${ym})`)),
+    hide: () => groups.forEach((g) => g.attr("display", "none"))
   };
 }
 function makeVerticalScale(fallback, range, limits) {

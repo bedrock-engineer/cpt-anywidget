@@ -1,5 +1,6 @@
 import * as d3 from "./d3";
 import type {
+  AnySelection,
   AxisLimits,
   ChannelSpec,
   CptData,
@@ -42,6 +43,33 @@ export function resolveChannel(
     ...channelDefaults[spec.key],
     ...Object.fromEntries(Object.entries(spec).filter(([, v]) => v != null)),
   } as ResolvedChannel;
+}
+
+// one slot per stacked channel x axis, outward from the plot edge —
+// shared by the cpt chart (both sides) and the profile strips (below)
+export const axisSlot = 30;
+
+/** axis/legend title for a channel: "qc [MPa]", unitless stays bare */
+export const channelTitle = (s: Pick<Series, "label" | "unit">) =>
+  s.unit ? `${s.label} [${s.unit}]` : s.label;
+
+/** one stacked channel x axis, every part inked in the channel color so
+ * the axis reads as the curve's; bottom or top by the series' side. The
+ * slot transform stays at the call site — the chart stacks outward from
+ * both plot edges, the profile stacks downward per strip */
+export function channelAxis(
+  g: AnySelection<SVGGElement>,
+  s: Pick<Series, "x" | "side" | "color">,
+  { ticks, tickSizeOuter = 6 }: { ticks: number; tickSizeOuter?: number },
+) {
+  g.call(
+    (s.side === "bottom" ? d3.axisBottom : d3.axisTop)(s.x)
+      .ticks(ticks)
+      .tickSizeOuter(tickSizeOuter),
+  )
+    .call((g) => g.selectAll("text").attr("fill", s.color))
+    .call((g) => g.selectAll("line").attr("stroke", s.color))
+    .call((g) => g.select(".domain").attr("stroke", s.color));
 }
 
 // x scale for one channel; explicit limits are honored exactly, the

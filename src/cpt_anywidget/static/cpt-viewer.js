@@ -4365,6 +4365,13 @@ function resolveChannel(raw, fallbackColor) {
     ...Object.fromEntries(Object.entries(spec).filter(([, v]) => v != null))
   };
 }
+const axisSlot = 30;
+const channelTitle = (s) => s.unit ? `${s.label} [${s.unit}]` : s.label;
+function channelAxis(g, s, { ticks: ticks2, tickSizeOuter = 6 }) {
+  g.call(
+    (s.side === "bottom" ? axisBottom : axisTop)(s.x).ticks(ticks2).tickSizeOuter(tickSizeOuter)
+  ).call((g2) => g2.selectAll("text").attr("fill", s.color)).call((g2) => g2.selectAll("line").attr("stroke", s.color)).call((g2) => g2.select(".domain").attr("stroke", s.color));
+}
 function makeXScale(values, range2, limits) {
   const finite = (values ?? []).filter((v) => v != null);
   if (!finite.length) {
@@ -4432,7 +4439,6 @@ function cptChart(svg, {
     rangeBottom: [margin.left, width - margin.right],
     rangeTop: [width - margin.right, margin.left]
   });
-  const axisSlot = 30;
   const bottomSeries = series.filter((s) => s.side === "bottom");
   const topSeries = series.filter((s) => s.side === "top");
   const marginTop = margin.top + axisSlot * topSeries.length;
@@ -4442,8 +4448,8 @@ function cptChart(svg, {
     [marginTop, height - marginBottom],
     axisLimits[vert.key]
   );
-  const xAxis = (g, s, slotY) => g.attr("transform", `translate(0,${slotY})`).call((s.side === "bottom" ? axisBottom : axisTop)(s.x).ticks(width / 100)).call((g2) => g2.selectAll("text").attr("fill", s.color)).call((g2) => g2.selectAll("line").attr("stroke", s.color)).call((g2) => g2.select(".domain").attr("stroke", s.color)).call(
-    (g2) => g2.append("text").attr("x", s.side === "bottom" ? margin.left - 16 : width - margin.right + 16).attr("y", s.side === "bottom" ? 9 : -9).attr("dy", s.side === "bottom" ? "0.71em" : "0em").attr("fill", s.color).attr("text-anchor", s.side === "bottom" ? "end" : "start").attr("font-weight", "bold").text(s.unit ? `${s.label} [${s.unit}]` : s.label)
+  const xAxis = (g, s, slotY) => g.attr("transform", `translate(0,${slotY})`).call(channelAxis, s, { ticks: width / 100 }).call(
+    (g2) => g2.append("text").attr("x", s.side === "bottom" ? margin.left - 16 : width - margin.right + 16).attr("y", s.side === "bottom" ? 9 : -9).attr("dy", s.side === "bottom" ? "0.71em" : "0em").attr("fill", s.color).attr("text-anchor", s.side === "bottom" ? "end" : "start").attr("font-weight", "bold").attr("font-size", 12).text(channelTitle(s))
   );
   const gridXScale = bottomSeries[0]?.x ?? topSeries[0]?.x;
   const xGrid = (g) => g.attr("stroke", "currentColor").attr("stroke-opacity", 0.1).selectAll("line").data(gridXScale ? gridXScale.ticks(width / 100) : []).join("line").attr("x1", (d) => 0.5 + gridXScale(d)).attr("x2", (d) => 0.5 + gridXScale(d)).attr("y1", marginTop).attr("y2", height - marginBottom);
@@ -4653,16 +4659,22 @@ function overlayLayer(svg, overlays, { seriesByKey, clipId }) {
   return (y1) => paths.attr("d", (o) => overlayPath(o, y1));
 }
 const haloText = (text) => text.attr("stroke", "white").attr("stroke-width", 4).attr("paint-order", "stroke");
-function focusRig(svg, { marginLeft, ruleX2 }) {
+function focusRig(svg, {
+  marginLeft,
+  ruleX2,
+  readoutHost
+}) {
   const focus = svg.append("g").attr("display", "none").attr("pointer-events", "none");
   const rule = focus.append("line").attr("x1", marginLeft).attr("x2", ruleX2).attr("stroke", "currentColor").attr("stroke-opacity", 0.3);
-  const readout = focus.append("text").attr("x", marginLeft - 8).attr("dy", "0.32em").attr("text-anchor", "end").attr("font-size", 12).attr("font-weight", "bold").attr("fill", "currentColor").call(haloText);
+  const readoutGroup = readoutHost ? readoutHost.append("g").attr("display", "none").attr("pointer-events", "none") : focus;
+  const readout = readoutGroup.append("text").attr("x", marginLeft - 8).attr("dy", "0.32em").attr("text-anchor", "end").attr("font-size", 12).attr("font-weight", "bold").attr("fill", "currentColor").call(haloText);
+  const groups = readoutGroup === focus ? [focus] : [focus, readoutGroup];
   return {
     focus,
     rule,
     readout,
-    show: (ym) => focus.attr("display", null).attr("transform", `translate(0,${ym})`),
-    hide: () => focus.attr("display", "none")
+    show: (ym) => groups.forEach((g) => g.attr("display", null).attr("transform", `translate(0,${ym})`)),
+    hide: () => groups.forEach((g) => g.attr("display", "none"))
   };
 }
 function crosshair(svg, {
@@ -4840,16 +4852,22 @@ function wedgeAt(arcs, dx, dy, deadZone) {
   );
   return index === -1 ? null : index;
 }
+const laneGap = 2;
+const laneWidth = 14;
+const laneExtent = laneGap + laneWidth;
 function editableColumn({
   model,
   el,
   signal,
   layersG,
   handlesG,
+  laneG,
   editedLayers,
   soilClasses,
   classLabel,
   columnWidth,
+  plotTop,
+  plotBottom,
   layerColumn,
   currentY
 }) {
@@ -4861,21 +4879,8 @@ function editableColumn({
     );
     model.save_changes();
   };
-  let altHeld = false;
-  const binShape = '<path d="M3 6h18M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6M10 11v6M14 11v6"/>';
-  const binCursor = `url("data:image/svg+xml,${encodeURIComponent(
-    `<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke-linecap="round" stroke-linejoin="round"><g stroke="white" stroke-width="4.5">${binShape}</g><g stroke="black" stroke-width="2">${binShape}</g></svg>`
-  )}") 9 9, pointer`;
-  const handleCursor = () => altHeld ? binCursor : "ns-resize";
-  const reflectAltKey = (event) => {
-    altHeld = event.type === "blur" ? false : event.altKey;
-    handlesG.selectAll("rect.handle").attr("cursor", handleCursor());
-  };
-  for (const type2 of ["keydown", "keyup", "blur"]) {
-    window.addEventListener(type2, reflectAltKey, { signal });
-  }
   let dragChanged = false;
-  const dragHandler = drag().filter((event) => !event.altKey).subject((event, i) => ({
+  const dragHandler = drag().subject((event, i) => ({
     x: event.x,
     y: currentY()(layers[i].bottom)
   })).on("drag", (event, i) => {
@@ -4893,17 +4898,62 @@ function editableColumn({
       syncEditedLayers();
     }
   });
-  const boundaryHandles = (parent) => parent.selectAll("rect.handle").data(range(layers.length - 1)).join("rect").attr("class", "handle").attr("x", 0).attr("width", columnWidth).attr("height", 9).attr("fill", "transparent").attr("cursor", handleCursor()).call(dragHandler).on("click", (event, i) => {
-    if (!event.altKey) {
+  const boundaryHandles = (parent) => parent.selectAll("rect.handle").data(range(layers.length - 1)).join(
+    (enter) => enter.append("rect").attr("class", "handle").attr("x", 0).attr("width", columnWidth).attr("height", 9).attr("fill", "transparent").attr("cursor", "ns-resize").call(dragHandler)
+  );
+  const laneX = columnWidth + laneGap;
+  const snapPx = 6;
+  const laneHit = laneG.append("rect").attr("x", laneX).attr("y", plotTop).attr("width", laneWidth).attr("height", plotBottom - plotTop).attr("fill", "#f6f6f6").attr("stroke", "#ddd").attr("cursor", "pointer");
+  const laneLine = laneG.append("line").attr("x1", labelMargin).attr("x2", laneX + laneWidth).attr("stroke-width", 1.5).attr("pointer-events", "none").attr("display", "none");
+  const laneGlyph = laneG.append("text").attr("x", laneX + laneWidth / 2).attr("text-anchor", "middle").attr("dy", "0.32em").attr("font-size", 12).attr("font-weight", "bold").attr("pointer-events", "none").attr("display", "none");
+  const laneTarget = (py) => {
+    const y1 = currentY();
+    let best = snapPx;
+    let nearest = null;
+    for (let i = 0; i < layers.length - 1; i++) {
+      const by = y1(layers[i].bottom);
+      if (Math.abs(by - py) < best) {
+        best = Math.abs(by - py);
+        nearest = { kind: "merge", boundary: i, at: by };
+      }
+    }
+    if (nearest) {
+      return nearest;
+    }
+    const value = y1.invert(py);
+    const layer = layers.findIndex((l) => (value - l.top) * (value - l.bottom) <= 0);
+    return layer === -1 ? null : { kind: "split", layer, value, at: py };
+  };
+  const hideLanePreview = () => {
+    laneLine.attr("display", "none");
+    laneGlyph.attr("display", "none");
+  };
+  const previewLane = (py) => {
+    const target = laneTarget(py);
+    if (!target) {
+      hideLanePreview();
       return;
     }
-    const next = merge(layers, i);
+    const merging = target.kind === "merge";
+    const color2 = merging ? "#c0392b" : "#444";
+    laneLine.attr("display", null).attr("y1", target.at).attr("y2", target.at).attr("stroke", color2).attr("stroke-dasharray", merging ? null : "4,3");
+    laneGlyph.attr("display", null).attr("y", target.at).attr("fill", color2).text(merging ? "×" : "+");
+  };
+  laneHit.on("pointermove", (event) => previewLane(pointer(event)[1])).on("pointerleave", hideLanePreview).on("dblclick", (event) => event.stopPropagation()).on("click", (event) => {
+    closePalette();
+    const py = pointer(event)[1];
+    const target = laneTarget(py);
+    if (!target) {
+      return;
+    }
+    const next = target.kind === "merge" ? merge(layers, target.boundary) : splitAt(layers, target.layer, target.value);
     if (next === layers) {
       return;
     }
     layers = next;
     updateEditColumn();
     syncEditedLayers();
+    previewLane(py);
   });
   select(el).style("position", "relative");
   const pieOuter = 75;
@@ -4922,29 +4972,27 @@ function editableColumn({
   slice.append("text").attr("transform", (d) => `translate(${labelArc.centroid(d)})`).attr("text-anchor", "middle").attr("dy", "0.32em").attr("font-size", 10).attr("fill", (d) => lab(d.data.color).l > 60 ? "#333" : "white").text((d) => d.data.label ?? d.data.name);
   pieSvg.append("circle").attr("r", pieInner - 2).attr("fill", "white");
   const pieCenter = pieSvg.append("text").attr("text-anchor", "middle").attr("dy", "0.32em").attr("font-size", 10).attr("fill", "#333");
-  let paletteTimer;
-  const holdOpenMs = 150;
   const dragSlop = 4;
   let press = null;
-  let holdTimer;
   let gestureOpen = false;
   let suppressClick = false;
+  let pieFor = null;
+  let armedIndex = null;
   const closePalette = () => {
-    clearTimeout(paletteTimer);
-    clearTimeout(holdTimer);
     press = null;
     gestureOpen = false;
+    pieFor = null;
+    armedIndex = null;
     palette.style("display", "none");
   };
   const openPalette = (x2, y2, layer) => {
+    pieFor = layer;
     palette.style("display", null).style("left", `${x2 - pieSize / 2}px`).style("top", `${y2 - pieSize / 2}px`);
     slice.classed("active", (d) => d.data.name === layer.class);
-    slice.classed("armed", false);
-    pieCenter.text(classLabel.get(layer.class) ?? "—");
-    slice.on("click", (_, d) => commitClass(layer, d.data));
+    armWedge(null);
   };
-  const commitClass = (layer, picked) => {
-    const next = assignClass(layers, layers.indexOf(layer), picked.name);
+  const commitClass = (picked) => {
+    const next = assignClass(layers, layers.indexOf(pieFor), picked.name);
     if (next !== layers) {
       layers = next;
       updateEditColumn();
@@ -4952,19 +5000,14 @@ function editableColumn({
     }
     closePalette();
   };
+  slice.on("click", (_, d) => commitClass(d.data));
   const wedgeUnder = (dx, dy) => wedgeAt(pieArcs, dx, dy, pieInner);
-  const armWedge = (index, layer) => {
+  const armWedge = (index) => {
+    armedIndex = index;
     slice.classed("armed", (d) => d.index === index);
     pieCenter.text(
-      index == null ? classLabel.get(layer.class) ?? "—" : soilClasses[index].label ?? soilClasses[index].name
+      index == null ? classLabel.get(pieFor.class) ?? "—" : soilClasses[index].label ?? soilClasses[index].name
     );
-  };
-  const openGesture = () => {
-    if (!press) {
-      return;
-    }
-    gestureOpen = true;
-    openPalette(press.x, press.y, press.layer);
   };
   window.addEventListener(
     "pointermove",
@@ -4980,31 +5023,27 @@ function editableColumn({
         if (Math.hypot(dx, dy) < dragSlop) {
           return;
         }
-        clearTimeout(holdTimer);
-        openGesture();
+        gestureOpen = true;
+        openPalette(x2, y2, layer);
       }
-      armWedge(wedgeUnder(dx, dy), layer);
+      armWedge(wedgeUnder(dx, dy));
     },
     { signal }
   );
   window.addEventListener(
     "pointerup",
-    (event) => {
+    () => {
       if (!press) {
         return;
       }
-      clearTimeout(holdTimer);
-      const { x: x2, y: y2, layer } = press;
       press = null;
       if (!gestureOpen) {
         return;
       }
       gestureOpen = false;
       suppressClick = true;
-      const [px, py] = pointer(event, el);
-      const index = wedgeUnder(px - x2, py - y2);
-      if (index != null) {
-        commitClass(layer, soilClasses[index]);
+      if (armedIndex != null) {
+        commitClass(soilClasses[armedIndex]);
       }
     },
     { signal }
@@ -5019,52 +5058,65 @@ function editableColumn({
     { capture: true, signal }
   );
   window.addEventListener("wheel", closePalette, { signal });
-  window.addEventListener("keydown", (event) => event.key === "Escape" && closePalette(), {
-    signal
-  });
-  const classifyLayers = (parent) => parent.selectAll("g.layer rect").on("pointerdown", (event, d) => {
-    if (event.button !== 0 || event.altKey) {
+  const keyStep = {
+    ArrowRight: 1,
+    ArrowDown: 1,
+    ArrowLeft: -1,
+    ArrowUp: -1
+  };
+  window.addEventListener(
+    "keydown",
+    (event) => {
+      if (event.key === "Escape") {
+        closePalette();
+        return;
+      }
+      if (!pieFor) {
+        return;
+      }
+      const step = keyStep[event.key];
+      if (step != null) {
+        event.preventDefault();
+        const count = soilClasses.length;
+        const active = soilClasses.findIndex((c) => c.name === pieFor.class);
+        const from = armedIndex ?? (active >= 0 ? active : step > 0 ? -1 : 0);
+        armWedge(((from + step) % count + count) % count);
+      } else if ((event.key === "Enter" || event.key === " ") && armedIndex != null) {
+        event.preventDefault();
+        commitClass(soilClasses[armedIndex]);
+      }
+    },
+    { signal }
+  );
+  const classifyLayers = (parent) => parent.selectAll("g.layer rect").attr("cursor", "pointer").on("pointerdown", (event, d) => {
+    if (event.button !== 0) {
       return;
     }
     const [px, py] = pointer(event, el);
     suppressClick = false;
     press = { x: px, y: py, layer: d };
-    clearTimeout(holdTimer);
-    holdTimer = setTimeout(openGesture, holdOpenMs);
   }).on("click", (event, d) => {
     if (suppressClick) {
       suppressClick = false;
       return;
     }
-    if (event.detail !== 1) {
-      return;
-    }
     const [px, py] = pointer(event, el);
-    clearTimeout(paletteTimer);
-    paletteTimer = setTimeout(() => openPalette(px, py, d), 200);
-  });
-  const splitLayers = (parent) => parent.selectAll("g.layer rect").attr("cursor", "crosshair").on("dblclick", (event, d) => {
-    event.stopPropagation();
-    closePalette();
-    const next = splitAt(layers, layers.indexOf(d), currentY().invert(pointer(event)[1]));
-    if (next === layers) {
-      return;
-    }
-    layers = next;
-    updateEditColumn();
-    syncEditedLayers();
+    openPalette(px, py, d);
   });
   const placeHandles = (y1) => handlesG.selectAll("rect.handle").attr("y", (i) => y1(layers[i].bottom) - 4.5);
   const placeEditColumn = (y1) => {
     placeLayerColumn(layersG, y1);
     placeHandles(y1);
   };
-  const updateEditColumn = () => {
-    layersG.call(layerColumn, layers).call(splitLayers).call(classifyLayers);
+  const joinEditColumn = () => {
+    layersG.call(layerColumn, layers).call(classifyLayers);
     handlesG.call(boundaryHandles);
+  };
+  const updateEditColumn = () => {
+    joinEditColumn();
     placeEditColumn(currentY());
   };
-  updateEditColumn();
+  joinEditColumn();
   return placeHandles;
 }
 function layoutColumns(columns, width, column) {
@@ -5120,9 +5172,9 @@ const cptViewer = {
     const width = model.get("width") || 400;
     const height = model.get("height") || 800;
     const margin = {
-      left: 60,
+      left: 70,
       right: 50,
-      top: 24,
+      top: 10,
       bottom: 10
     };
     const marginLeft = margin.left;
@@ -5152,7 +5204,8 @@ const cptViewer = {
       ] : []
     ];
     const { totalWidth, x0 } = layoutColumns(columns, width, column);
-    const svg = select(el).append("svg").attr("viewBox", [x0, 0, totalWidth - x0, height].join(",")).attr("width", totalWidth - x0).attr("height", height).style("max-width", "100%").style("height", "auto").style("user-select", "none").style("-webkit-user-select", "none");
+    const svgRight = totalWidth + (editedLayers.length ? laneExtent : 0);
+    const svg = select(el).append("svg").attr("viewBox", [x0, 0, svgRight - x0, height].join(",")).attr("width", svgRight - x0).attr("height", height).style("max-width", "100%").style("height", "auto").style("user-select", "none").style("-webkit-user-select", "none");
     const { series, seriesByKey, y: y2, clipId, marginTop, marginBottom, place } = cptChart(svg, {
       cptData,
       vertical,
@@ -5204,16 +5257,20 @@ const cptViewer = {
     if (editedLayers.length) {
       const layersG = columnLayers.filter((d) => Boolean(d.editable));
       const handlesG = columnBody.filter((d) => Boolean(d.editable)).append("g");
+      const laneG = gColumn.filter((d) => Boolean(d.editable)).append("g");
       const placeHandles = editableColumn({
         model,
         el,
         signal,
         layersG,
         handlesG,
+        laneG,
         editedLayers,
         soilClasses,
         classLabel,
         columnWidth: column.width,
+        plotTop: marginTop,
+        plotBottom: height - marginBottom,
         layerColumn,
         // closes over the zoom drive declared below; pointer events
         // can't fire before render completes, so the read is safe

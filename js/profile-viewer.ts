@@ -1,10 +1,17 @@
 import type { RenderProps } from "@anywidget/types";
 import * as d3 from "./lib/d3";
-import { makeXScale, resolveChannel } from "./lib/channels";
+import { axisSlot, channelAxis, channelTitle, makeXScale, resolveChannel } from "./lib/channels";
 import { annotationLayer } from "./lib/annotations";
 import { chainageAxisFor } from "./lib/chainage-axis";
-import { makeVerticalScale, plotClip, verticalAxisTitle, yAxisFor, yGridFor } from "./lib/frame";
-import { focusRig } from "./lib/focus-rig";
+import {
+  makeVerticalScale,
+  plotClip,
+  verticalAxisTitle,
+  yAxisFor,
+  yAxisRightFor,
+  yGridFor,
+} from "./lib/frame";
+import { focusRig, haloText } from "./lib/focus-rig";
 import { minimap } from "./lib/minimap";
 import { profileOverlayLayer } from "./lib/profile-overlays";
 import { resolveVertical } from "./lib/vertical";
@@ -12,9 +19,11 @@ import { stripLayout } from "./lib/strip-layout";
 import { verticalZoom } from "./lib/zoom";
 import type {
   Annotation,
+  AnySelection,
   AxisLimits,
   ChannelSpec,
   CptData,
+  Layer,
   ProfileOverlay,
   VerticalScale,
   VerticalSpec,
@@ -25,6 +34,8 @@ interface ProfileCpt {
   name: string;
   distance: number;
   data: CptData;
+  /** interpreted layers, top/bottom in the vertical coordinate */
+  layers?: Layer[];
 }
 
 /** the synced traits — the TS mirror of ProfileViewer's traitlets */
@@ -32,7 +43,7 @@ interface ProfileModel {
   cpts: ProfileCpt[];
   verticalKey: string | VerticalSpec;
   axisLimits: AxisLimits;
-  channel: string | ChannelSpec;
+  channels: (string | ChannelSpec)[];
   overlays: ProfileOverlay[];
   annotations: Annotation[];
   equalSpacing: boolean;
@@ -53,17 +64,14 @@ export default {
     });
     const signal = controller.signal;
     // strips render left-to-right by chainage regardless of input order
-    const cpts = [...(model.get("cpts") ?? [])].sort((a, b) => a.distance - b.distance);
+    const cpts = [...(model.get("cpts") ?? [])].sort((a, b) =>
+      d3.ascending(a.distance, b.distance),
+    );
 
     const vert = resolveVertical(model.get("verticalKey"), "nap");
     const axisLimits = model.get("axisLimits") ?? {};
     const annotations = model.get("annotations") ?? [];
     const overlays = model.get("overlays") ?? [];
-
-    // every strip plots the same single channel (qc by default); the
-    // spec/defaults contract matches the interpretation widget's
-    // channels entries
-    const channel = resolveChannel(model.get("channel") || "coneResistance", d3.schemeTableau10[0]);
 
     let equal = model.get("equalSpacing") ?? false;
 
@@ -72,31 +80,52 @@ export default {
     const height = model.get("height") || 500;
 
     const vertOf = (c: ProfileCpt) => c.data[vert.key] ?? [];
-    const valuesOf = (c: ProfileCpt) => c.data[channel.key] ?? [];
 
     const allVert = cpts.flatMap(vertOf).filter((v): v is number => v != null);
 
-    // one shared channel scale across every strip, in strip-local px —
-    // comparing strips is the point, so their x domains must agree
-    const x = makeXScale(cpts.flatMap(valuesOf), [0, stripWidth], axisLimits[channel.key]);
+    // every strip plots the same channels (qc by default); the
+    // spec/defaults contract matches the interpretation widget's
+    // channels entries. Each channel gets one scale shared across every
+    // strip, in strip-local px — comparing strips is the point, so the
+    // x domains must agree per channel. Channels without data drop out
+    const requested: (string | ChannelSpec)[] = model.get("channels") ?? [];
+    const series = (requested.length ? requested : ["coneResistance"])
+      .map((c, i) => {
+        const merged = resolveChannel(c, d3.schemeTableau10[i % 10]);
+        return {
+          ...merged,
+          x: makeXScale(
+            cpts.flatMap((cpt) => cpt.data[merged.key] ?? []),
+            [0, stripWidth],
+            axisLimits[merged.key],
+          ),
+        };
+      })
+      .filter(
+        (s): s is typeof s & { x: NonNullable<(typeof s)["x"]> } =>
+          s.x !== null,
+      );
 
-    if (!cpts.length || !allVert.length || !x) {
+    if (!cpts.length || !allVert.length || !series.length) {
       d3.select(el).append("div").text("no plottable CPT data");
       return;
     }
 
     const marginLeft = 50;
-    const marginRight = 20;
+    const marginRight = 40; // room for the right vertical axis labels
     const marginTop = 28;
-    // room under the plot for the per-strip channel axes + chainage axis
-    const marginBottom = 62;
+    // room under the plot for the per-strip channel axes — one slot per
+    // channel, stacked in list order — + the chainage axis
+    const marginBottom = 62 + axisSlot * (series.length - 1);
     const yBottom = height - marginBottom;
 
     // vertical direction follows the data order like the other widgets:
     // the first sample renders at the top (the facade sorts elevations
     // descending); the spec's up only breaks the tie when no strip has
     // two placeable samples
-    const ordered = cpts.map(vertOf).find((v) => v.filter((s) => s != null).length >= 2);
+    const ordered = cpts
+      .map(vertOf)
+      .find((v) => v.filter((s) => s != null).length >= 2);
     let descending = vert.up;
     if (ordered) {
       const first = ordered.find((s) => s != null)!;
@@ -153,20 +182,70 @@ export default {
       .style("vertical-align", "-2px")
       .property("checked", equal)
       .on("change", (event: Event) => {
-        model.set("equalSpacing", (event.currentTarget as HTMLInputElement).checked);
+        model.set(
+          "equalSpacing",
+          (event.currentTarget as HTMLInputElement).checked,
+        );
         model.save_changes();
       });
 
     toggle.append("span").text(" equal spacing");
+
+    // layer legend, derived from the plotted layers so it can never
+    // drift from the backdrops: distinct label/color pairs in first-
+    // appearance order (strips left to right, layers top down).
+    // Unlabeled layers have nothing to say here and are skipped
+    const legendEntries: { label: string; color: string }[] = [];
+    const seenLabels = new Set<string>();
+    for (const c of cpts) {
+      for (const l of c.layers ?? []) {
+        if (!l.label || seenLabels.has(l.label)) continue;
+        seenLabels.add(l.label);
+        legendEntries.push({ label: l.label, color: l.color ?? "#999" });
+      }
+    }
+
+    if (legendEntries.length) {
+      const item = d3
+        .select(el)
+        .append("div")
+        .style("font", "11px system-ui, sans-serif")
+        .style("display", "flex")
+        .style("flex-wrap", "wrap")
+        .style("gap", "2px 10px")
+        .style("margin", "0 0 4px 2px")
+        .selectAll("span.legend-item")
+        .data(legendEntries)
+        .join("span")
+        .attr("class", "legend-item")
+        .style("white-space", "nowrap");
+      // the swatch matches the backdrop's opacity, so it shows the
+      // color as it actually appears in the plot
+      item
+        .append("span")
+        .style("display", "inline-block")
+        .style("width", "10px")
+        .style("height", "10px")
+        .style("margin-right", "4px")
+        .style("vertical-align", "-1px")
+        .style("background", (e) => e.color);
+      item.append("span").text((e) => e.label);
+    }
 
     // overview bar between the toolbar and the scroller; shows only
     // when the profile overflows sideways — see lib/minimap
     const minimapHost = d3.select(el).append("div");
 
     // fixed-px svg in a scrolling host: a wide profile scrolls sideways
-    // at full height (css max-width scaling would shrink the height too)
-    const scroller = d3
+    // at full height (css max-width scaling would shrink the height too).
+    // The wrapper anchors the pinned axis overlay over the scroller
+    const wrap = d3
       .select(el)
+      .append("div")
+      .style("position", "relative")
+      .style("max-width", "100%");
+
+    const scroller = wrap
       .append("div")
       .style("max-width", "100%")
       .style("overflow-x", "auto");
@@ -197,7 +276,25 @@ export default {
       height: yBottom - marginTop,
     });
 
+    // pinned axis overlay: the chart svg keeps its real left axis (a
+    // serialized svg stays self-contained), and this fixed copy sits on
+    // top of the scroller's left edge so the axis and the readout stay
+    // in view while a wide profile scrolls underneath. pointer-events:
+    // none lets hover/click/brush through to the chart
+    const pinnedLeft = wrap
+      .append("svg")
+      .attr("width", marginLeft + 1)
+      .attr("height", height)
+      .style("position", "absolute")
+      .style("left", "0")
+      .style("top", "0")
+      .style("pointer-events", "none");
+
     const yAxis = yAxisFor(marginLeft, height);
+    // right-edge axis (scrolls with the chart, no pinned copy): its x
+    // tracks the svg width, so the factory is rebuilt whenever the
+    // spacing mode changes it (like yGrid below)
+    let yAxisR = yAxisRightFor(curWidth - marginRight, height);
 
     // one background grid across the whole profile — the strips share
     // it. Rebuilt on the spacing toggle since its right edge tracks the
@@ -211,26 +308,47 @@ export default {
     // placed by the zoom drive (and the grid by placeStrips too)
     const gGrid = svg.append("g");
     const gy = svg.append("g");
+    const gyR = svg.append("g");
+    const gyPinned = pinnedLeft.append("g");
+
+    // halo keeps the pinned copy's labels legible over strips scrolling
+    // underneath it
+    const haloTicks = (g: AnySelection<SVGGElement>) =>
+      g.selectAll<SVGTextElement, unknown>("text").call(haloText);
+
+    // every vertical axis in one placer: the two real ones in the chart
+    // svg and the pinned viewport-edge copy, so they cannot drift
+    const placeAxes = (y1: VerticalScale) => {
+      gy.call(yAxis, y1);
+      gyR.call(yAxisR, y1);
+      haloTicks(gyPinned.call(yAxis, y1));
+    };
 
     verticalAxisTitle(svg, vert.label);
+    verticalAxisTitle(pinnedLeft, vert.label);
+    pinnedLeft.selectAll<SVGTextElement, unknown>("text").call(haloText);
 
-    // the per-strip axes all share one scale, so the unit is labeled once,
-    // aligned with their tick labels; flush left like the vertical-axis
-    // label — end-anchoring against marginLeft would run off the viewBox
+    // the per-strip axes all share one scale per channel, so each unit
+    // is labeled once, aligned with its slot's tick labels; flush left
+    // like the vertical-axis label — end-anchoring against marginLeft
+    // would run off the viewBox
     svg
-      .append("text")
+      .selectAll("text.channel-label")
+      .data(series)
+      .join("text")
+      .attr("class", "channel-label")
       .attr("x", 0)
-      .attr("y", yBottom + 9)
+      .attr("y", (_, i) => yBottom + axisSlot * i + 9)
       .attr("dy", "0.71em")
       .attr("text-anchor", "start")
       .attr("font-size", 10)
       .attr("font-weight", "bold")
-      .attr("fill", channel.color)
-      .text(channel.unit ? `${channel.label} [${channel.unit}]` : channel.label);
+      .attr("fill", (s) => s.color)
+      .text(channelTitle);
 
     // chainage axis under the strip axes: honest meters in true scale;
     // equal-spaced mode instead ticks each strip anchor with its chainage
-    const chainY = yBottom + 32;
+    const chainY = yBottom + axisSlot * (series.length - 1) + 32;
     const gChain = svg.append("g").attr("transform", `translate(0,${chainY})`);
 
     // dual-mode: honest meter axis in true scale, per-dijkpaal labels
@@ -260,6 +378,31 @@ export default {
       .join("g")
       .attr("class", "strip");
 
+    // interpreted layers as a full-width backdrop: the classic soil
+    // profile — each layer's color fills the strip behind the curves at
+    // reduced opacity, so the traces stay legible on top. Appended
+    // before the frame so the selection stroke stays on top, clipped
+    // like the traces so zoom cannot spill it
+    const stripLayer = strip
+      .append("g")
+      .attr("clip-path", `url(#${stripClipId})`)
+      .selectAll<SVGRectElement, Layer>("rect")
+      .data((c) => c.layers ?? [])
+      .join("rect")
+      .attr("x", 0)
+      .attr("width", stripWidth)
+      .attr("fill", (l) => l.color ?? "#999")
+      .attr("fill-opacity", 0.8)
+      .attr("stroke", "white")
+      .attr("stroke-width", 0.5);
+
+    // min/max instead of trusting top < bottom in pixel space: NAP runs
+    // upward, so the numerically greater boundary is the higher pixel
+    const placeLayers = (y1: VerticalScale) =>
+      stripLayer
+        .attr("y", (l) => Math.min(y1(l.top), y1(l.bottom)))
+        .attr("height", (l) => Math.abs(y1(l.bottom) - y1(l.top)));
+
     strip
       .append("rect")
       .attr("class", "frame")
@@ -270,21 +413,26 @@ export default {
       .attr("fill", "transparent");
 
     strip
-      .append("g")
-      .attr("transform", `translate(0,${yBottom})`)
-      .call(
-        d3
-          .axisBottom(x)
-          .ticks(Math.max(2, stripWidth / 45))
-          .tickSizeOuter(0),
-      );
+      .selectAll<SVGGElement, (typeof series)[number]>("g.channel-axis")
+      .data(() => series)
+      .join("g")
+      .attr("class", "channel-axis")
+      .attr("transform", (_, i) => `translate(0,${yBottom + axisSlot * i})`)
+      .each(function (s) {
+        d3.select(this).call(channelAxis, s, {
+          ticks: Math.max(2, stripWidth / 45),
+          tickSizeOuter: 0,
+        });
+      });
 
     const stripPath = strip
       .append("g")
       .attr("clip-path", `url(#${stripClipId})`)
-      .append("path")
+      .selectAll("path")
+      .data((c) => series.map((s) => ({ c, s })))
+      .join("path")
       .attr("fill", "none")
-      .attr("stroke", channel.color)
+      .attr("stroke", ({ s }) => s.color)
       .attr("stroke-width", 1);
 
     const stripName = strip
@@ -296,17 +444,22 @@ export default {
       .attr("font-size", 11)
       .text((d) => d.name);
 
-    const tracePath = (c: ProfileCpt, y1: VerticalScale) => {
-      const values = valuesOf(c);
+    const tracePath = (
+      c: ProfileCpt,
+      s: (typeof series)[number],
+      y1: VerticalScale,
+    ) => {
+      const values = c.data[s.key] ?? [];
       const vertical = vertOf(c);
       return d3
         .line<number | null>()
         .defined((_, i) => values[i] != null && vertical[i] != null)
-        .x((_, i) => x(values[i]!))
+        .x((_, i) => s.x(values[i]!))
         .y((_, i) => y1(vertical[i]!))(values);
     };
 
-    const placeTraces = (y1: VerticalScale) => stripPath.attr("d", (d) => tracePath(d, y1));
+    const placeTraces = (y1: VerticalScale) =>
+      stripPath.attr("d", ({ c, s }) => tracePath(c, s, y1));
 
     // profile-space overlays (groundwater level, surface line, ...) span
     // the strips in (chainage, vertical) coordinates; see
@@ -318,8 +471,10 @@ export default {
       clipId,
     });
 
-    const placeOverlays = (y1: VerticalScale, t?: d3.Transition<any, any, any, any>) =>
-      placeProfileOverlays(y1, { centers, distX }, t);
+    const placeOverlays = (
+      y1: VerticalScale,
+      t?: d3.Transition<any, any, any, any>,
+    ) => placeProfileOverlays(y1, { centers, distX }, t);
 
     const placeAnnotations = annotationLayer(svg, annotations, {
       clipId,
@@ -361,25 +516,38 @@ export default {
         x2: curWidth - marginRight,
         height,
       });
-      svg.select(`#${clipId} rect`).attr("width", curWidth - marginLeft - marginRight);
+      yAxisR = yAxisRightFor(curWidth - marginRight, height);
+      svg
+        .select(`#${clipId} rect`)
+        .attr("width", curWidth - marginLeft - marginRight);
       rig.rule.attr("x2", curWidth - marginRight);
 
-      const transform = (_: ProfileCpt, i: number) => `translate(${centers[i] - stripWidth / 2},0)`;
+      const transform = (_: ProfileCpt, i: number) =>
+        `translate(${centers[i] - stripWidth / 2},0)`;
 
       if (animate) {
-        const t: d3.Transition<any, any, any, any> = svg.transition().duration(600);
-        t.attr("width", curWidth).attr("viewBox", [0, 0, curWidth, height].join(","));
+        const t: d3.Transition<any, any, any, any> = svg
+          .transition()
+          .duration(600);
+        t.attr("width", curWidth).attr(
+          "viewBox",
+          [0, 0, curWidth, height].join(","),
+        );
         strip.transition(t).attr("transform", transform);
         gGrid
           .selectAll("line")
           .transition(t as any)
           .attr("x2", curWidth - marginRight);
+        gyR.transition(t).attr("transform", `translate(${curWidth - marginRight},0)`);
         gChain.transition(t).call(chainageAxis as any, { equal, centers });
         placeOverlays(y1, t);
       } else {
-        svg.attr("width", curWidth).attr("viewBox", [0, 0, curWidth, height].join(","));
+        svg
+          .attr("width", curWidth)
+          .attr("viewBox", [0, 0, curWidth, height].join(","));
         strip.attr("transform", transform);
         gGrid.call(yGrid, y1);
+        gyR.call(yAxisR, y1);
         gChain.call(chainageAxis, { equal, centers });
         placeOverlays(y1);
       }
@@ -392,7 +560,13 @@ export default {
     // readout spans strips instead of reading one channel value. Built
     // before the first placeStrips call, which retargets the rule's x2
     // whenever the spacing mode changes the width
-    const rig = focusRig(svg, { marginLeft, ruleX2: curWidth - marginRight });
+    // the readout renders in the pinned overlay so it stays at the
+    // viewport edge with the axis copy; same pixel space, no conversion
+    const rig = focusRig(svg, {
+      marginLeft,
+      ruleX2: curWidth - marginRight,
+      readoutHost: pinnedLeft,
+    });
 
     placeStrips(false, y);
 
@@ -405,12 +579,72 @@ export default {
       return i === -1 ? null : i;
     };
 
+    // hovered-strip value readout: the bare-position rule stays the
+    // comparison tool (ADR-0001), but the one strip under the pointer
+    // also reads out its channel values at the nearest sample — a
+    // single bisect per channel, no per-strip DOM elsewhere
+    const formatValue = d3.format(".2f");
+    const bisectorDescend = d3.bisector<number, number>((d, x) => x - d);
+    const bisectStrip = (vertical: (number | null)[], value: number) =>
+      descending
+        ? bisectorDescend.center(vertical as number[], value)
+        : d3.bisectCenter(vertical as number[], value);
+
+    // the hovered strip's values stack just outside its frame's right
+    // edge — beside the curves like the CPT viewer's readouts right of
+    // the plot, not over them. Riding the focus group, centered on the
+    // rule; near the svg's right edge the stack flips to the frame's
+    // left so it never clips away
+    const valueGroup = rig.focus.append("g").attr("display", "none");
+
+    const placeStripValues = (si: number | null, py: number) => {
+      const zy = current();
+      const c = si == null ? null : cpts[si];
+      const vertical = c ? vertOf(c) : [];
+      const i = c ? bisectStrip(vertical, zy.invert(py)) : 0;
+      const vi = vertical[i];
+      // only read out when the nearest sample sits on the rule —
+      // hovering past a short strip's end must not read its end values
+      const entries =
+        c && vi != null && Math.abs(zy(vi) - py) <= 8
+          ? series
+              .map((s) => ({ s, v: c.data[s.key]?.[i] }))
+              .filter((e) => e.v != null)
+          : [];
+
+      if (si == null || !entries.length) {
+        valueGroup.attr("display", "none");
+        return;
+      }
+
+      const flip = centers[si] + stripWidth / 2 + 76 > curWidth;
+      const x = centers[si] + (stripWidth / 2 + 6) * (flip ? -1 : 1);
+
+      valueGroup
+        .attr("display", null)
+        .selectAll<SVGTextElement, (typeof entries)[number]>("text")
+        .data(entries)
+        .join("text")
+        .attr("x", x)
+        .attr("y", (_, i) => (i - (entries.length - 1) / 2) * 14)
+        .attr("dy", "0.32em")
+        .attr("text-anchor", flip ? "end" : "start")
+        .attr("font-size", 12)
+        .attr("fill", ({ s }) => s.color)
+        .call(haloText)
+        .text(({ s, v }) => `${s.label} ${formatValue(v!)}`);
+    };
+
     svg.on("pointerenter pointermove", (event: PointerEvent) => {
       const [px, py] = d3.pointer(event);
       const inPlot =
-        py >= marginTop && py <= yBottom && px >= marginLeft && px <= curWidth - marginRight;
+        py >= marginTop &&
+        py <= yBottom &&
+        px >= marginLeft &&
+        px <= curWidth - marginRight;
 
-      svg.style("cursor", () => (inPlot && stripIndexAt(px) != null ? "pointer" : null));
+      const si = inPlot ? stripIndexAt(px) : null;
+      svg.style("cursor", () => (si != null ? "pointer" : null));
 
       if (!inPlot) {
         rig.hide();
@@ -419,6 +653,7 @@ export default {
 
       rig.show(py);
       rig.readout.text(`${formatVertical(current().invert(py))} m`);
+      placeStripValues(si, py);
     });
 
     svg.on("pointerleave", () => {
@@ -457,8 +692,9 @@ export default {
       marginTop,
       marginBottom,
       placers: [
-        (y1) => gy.call(yAxis, y1),
+        placeAxes,
         (y1) => gGrid.call(yGrid, y1),
+        placeLayers,
         placeTraces,
         placeOverlays,
         placeAnnotations,

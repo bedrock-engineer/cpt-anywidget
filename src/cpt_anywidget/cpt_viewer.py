@@ -40,9 +40,10 @@ class CPTViewer(anywidget.AnyWidget):
 
     The ``editedLayers`` trait is the manually editable layer column —
     bidirectional, so read it back for the user's picks. Front-end edits:
-    drag a boundary to move it, double-click a layer to split it there,
-    option-click a boundary to merge (the upper layer wins), click a
-    layer to pick its class from the ``soil_classes`` pie menu.
+    drag a boundary to move it; split and merge live on the structure
+    lane beside the column — click at a depth to split there, click the
+    × offered near a boundary to merge it away (the upper layer wins);
+    click a layer to pick its class from the ``soil_classes`` pie menu.
     Layer color and label derive from the palette via each layer's
     ``class`` key.
     """

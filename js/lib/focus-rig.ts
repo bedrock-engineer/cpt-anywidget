@@ -26,7 +26,18 @@ export interface FocusRig {
 
 export function focusRig(
   svg: AnySelection<SVGSVGElement>,
-  { marginLeft, ruleX2 }: { marginLeft: number; ruleX2: number },
+  {
+    marginLeft,
+    ruleX2,
+    readoutHost,
+  }: {
+    marginLeft: number;
+    ruleX2: number;
+    /** append the readout into this svg instead of the focus group — a
+        pinned overlay keeps the value at the viewport edge while a wide
+        chart scrolls under it. Same pixel coordinates as the chart svg */
+    readoutHost?: AnySelection<SVGSVGElement>;
+  },
 ): FocusRig {
   const focus = svg.append("g").attr("display", "none").attr("pointer-events", "none");
 
@@ -37,7 +48,11 @@ export function focusRig(
     .attr("stroke", "currentColor")
     .attr("stroke-opacity", 0.3);
 
-  const readout = focus
+  const readoutGroup = readoutHost
+    ? readoutHost.append("g").attr("display", "none").attr("pointer-events", "none")
+    : focus;
+
+  const readout = readoutGroup
     .append("text")
     .attr("x", marginLeft - 8)
     .attr("dy", "0.32em")
@@ -47,11 +62,14 @@ export function focusRig(
     .attr("fill", "currentColor")
     .call(haloText);
 
+  const groups = readoutGroup === focus ? [focus] : [focus, readoutGroup];
+
   return {
     focus,
     rule,
     readout,
-    show: (ym) => focus.attr("display", null).attr("transform", `translate(0,${ym})`),
-    hide: () => focus.attr("display", "none"),
+    show: (ym) =>
+      groups.forEach((g) => g.attr("display", null).attr("transform", `translate(0,${ym})`)),
+    hide: () => groups.forEach((g) => g.attr("display", "none")),
   };
 }

@@ -27,4 +27,30 @@ describe("focusRig", () => {
     expect(rig.rule.attr("x1")).toBe("50");
     expect(rig.rule.attr("x2")).toBe("350");
   });
+
+  it("readoutHost relocates the readout and keeps show/hide in sync", () => {
+    const overlay = d3.select(document.body).append("svg");
+    const rig = focusRig(d3.select(document.body).append("svg"), {
+      marginLeft: 50,
+      ruleX2: 350,
+      readoutHost: overlay,
+    });
+    expect(overlay.node()!.contains(rig.readout.node())).toBe(true);
+    expect(rig.focus.node()!.contains(rig.readout.node())).toBe(false);
+
+    const readoutGroup = d3.select<SVGGElement, unknown>(
+      rig.readout.node()!.parentNode as SVGGElement,
+    );
+    expect(readoutGroup.attr("display")).toBe("none");
+    expect(readoutGroup.attr("pointer-events")).toBe("none");
+
+    rig.show(42);
+    expect(rig.focus.attr("transform")).toBe("translate(0,42)");
+    expect(readoutGroup.attr("transform")).toBe("translate(0,42)");
+    expect(readoutGroup.attr("display")).toBeNull();
+
+    rig.hide();
+    expect(rig.focus.attr("display")).toBe("none");
+    expect(readoutGroup.attr("display")).toBe("none");
+  });
 });

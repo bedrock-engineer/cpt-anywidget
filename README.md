@@ -52,9 +52,42 @@ normalize upstream. BRO column names get built-in display defaults; any
 other column can be bound with `Channel(key, label=…, unit=…, color=…, side=…)`.
 Custom vertical datums work the same way via `Vertical(key, label=…, up=…)`.
 
-Scroll/drag to zoom and pan the vertical axis; hover for a synced readout
-across all channels. Annotations, overlays, and axis limits are plain
-traits and track the zoom.
+Annotations, overlays, and axis limits are plain traits and track the
+zoom. See [Interactions](#interactions) for the pointer and keyboard
+gestures.
+
+## Interactions
+
+### Zoom and pan — all viewers
+
+- To zoom the vertical axis, hold the Ctrl key (Cmd on macOS) and turn
+  the mouse wheel. A trackpad pinch also zooms.
+- To pan a zoomed axis, drag in the plot area.
+- To zoom to a range, hold the Shift key and drag along the axis.
+- To reset the zoom, double-click in the plot area.
+- Move the pointer across the plot to read the values at that depth.
+- The mouse wheel without a modifier key scrolls the notebook, not the
+  chart.
+
+### Edit layers — the CPTViewer edit column
+
+- To move a boundary, drag it. A boundary stops at the minimum layer
+  thickness.
+- To split a layer, click in the lane beside the column. A dashed line
+  previews where the new boundary goes.
+- To merge two layers, move the pointer near their boundary in the lane
+  and click the × it offers. The upper layer keeps its class.
+- To set the class of a layer, click the layer. A pie menu opens. Click
+  a wedge, or walk the wedges with the arrow keys and push Enter.
+- As a fast path, press the layer, drag toward a wedge, and release.
+- To close the pie menu, push the Escape key or click outside the menu.
+- Each edit goes back to Python through the `editedLayers` trait.
+
+### Select a strip — ProfileViewer
+
+- To select a CPT strip, click it. The name shows in the `selected`
+  trait in Python.
+- To deselect the strip, click it again.
 
 ## Development
 

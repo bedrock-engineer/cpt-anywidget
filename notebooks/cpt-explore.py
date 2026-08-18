@@ -10,9 +10,10 @@
 # [tool.uv.sources]
 # cpt-anywidget = { path = "..", editable = true }
 # ///
+
 import marimo
 
-__generated_with = "0.23.13"
+__generated_with = "0.23.16"
 app = marimo.App(width="medium")
 
 
@@ -37,22 +38,43 @@ def _():
     from brodata.cpt import ConePenetrationTest
     from brodata.bhr import GeotechnicalBoreholeResearch
 
+    from geolib_plus.bro_xml_cpt import BroXmlCpt
+    from geolib_plus.cpt_utils import merge_thickness
+    from geolib_plus.robertson_cpt_interpretation import (
+        InterpretationMethod,
+        RobertsonCptInterpretation,
+        UnitWeightMethod,
+    )
+
     return (
         BHRGTViewer,
+        BroXmlCpt,
         CPTViewer,
         ConePenetrationTest,
         GeotechnicalBoreholeResearch,
+        InterpretationMethod,
         ProfileViewer,
+        RobertsonCptInterpretation,
+        UnitWeightMethod,
         chainage,
         from_vertical,
         layers_from_bhrgt,
+        merge_thickness,
         mo,
         pd,
         to_vertical,
     )
 
 
-@app.cell(hide_code=True)
+@app.cell
+def _(mo):
+    sorted(
+        (mo.notebook_dir().parent / "examples" / "broxml-cpt").glob("*.xml")
+    )
+    return
+
+
+@app.cell
 def _(mo):
     cpt_xml_files = sorted(
         (mo.notebook_dir().parent / "examples" / "broxml-cpt").glob("*.xml")
@@ -192,10 +214,10 @@ def _(mo):
 
 
 @app.cell(hide_code=True)
-def _(interp_dummy, mo):
+def _(cpt_interps, mo):
     # seed the editable column from one of the interpretations; starts empty
     seed_select = mo.ui.radio(
-        options=[col["label"] for col in interp_dummy],
+        options=[col["label"] for col in cpt_interps],
         label="seed edit column from",
     )
     seed_select
@@ -215,11 +237,44 @@ def _(mo):
 
     The same gestures work on the profile and borehole viewers below. In
     the editable layer column (rightmost): **drag** a boundary to move it,
-    **double-click** a layer to split it at the pointer, **⌥-click** a
-    boundary to merge the layers it separates (the upper layer wins), and
-    **click** a layer to pick its soil class from the pie.
+    and use the narrow **structure lane** on the column's outer edge for
+    the rest — hover shows a dashed line, **click to split** the layer at
+    that depth; near a boundary the lane offers an **× — click to merge**
+    the layers it separates (the upper layer wins). **Click** a layer to
+    pick its soil class from the pie: click a wedge, flick toward one, or
+    walk them with the **arrow keys** and commit with **Enter**.
     """)
     return
+
+
+@app.cell
+def _(mo):
+    # groundwater level (m below surface), shared by the GWL annotation
+    # and the hydrostatic overlay
+    gwl_slider = mo.ui.slider(start=0, stop=10, value=6.9, show_value=True, step=0.1)
+    gwl_slider
+    return (gwl_slider,)
+
+
+@app.cell
+def _(gwl_slider):
+    gwl = gwl_slider.value
+    return (gwl,)
+
+
+@app.cell
+def _(at, cpt, gwl):
+    # hydrostatic pore pressure below the GWL (0.00981 MPa per m of water
+    # column): a polyline in porePressureU2's x coordinate against the
+    # shared vertical axis — the overlay only renders while u2 is plotted
+    _final = float(cpt.finalDepth)
+    hydrostatic = {
+        "channel": "porePressureU2",
+        "points": [[0, at(gwl)], [0.00981 * (_final - gwl), at(_final)]],
+        "color": "#4269d0",
+        "dash": "4,3",
+    }
+    return (hydrostatic,)
 
 
 @app.cell
@@ -230,29 +285,50 @@ def _(
     channel_select,
     cpt,
     cpt_data,
+    cpt_interps,
     edited_store,
     from_vertical,
     gwl,
     hydrostatic,
-    interp_dummy,
     interpretations,
     seed_select,
     set_edited_layers,
     vertical_select,
 ):
+    # seeding simplifies the interpretation's zones into the widget's base
+    # palette (the edit column is a manual 5-class simplification, so e.g.
+    # "silt mix" seeds as silt, "stiff fine gr." as clay)
+    _seed_class = {
+        "sensitive": "clay",
+        "organic": "peat",
+        "peat": "peat",
+        "organic clay": "clay",
+        "clay": "clay",
+        "silt mix": "silt",
+        "sand mix": "sand",
+        "sand": "sand",
+        "gravelly sand": "gravel",
+        "stiff sand": "sand",
+        "stiff fine gr.": "clay",
+    }
+
     if edited_store["seed"] != seed_select.value:
-        # (re)seed: copy the chosen interpretation's layers, class-keyed —
-        # color and label derive from the widget's soil_classes palette (the
-        # dummy labels double as class names); no selection clears the column
+        # (re)seed: copy the chosen interpretation's layers, class-keyed so
+        # color and label derive from the widget's soil_classes palette; no
+        # selection clears the column
         _col = next(
-            (c for c in interp_dummy if c["label"] == seed_select.value), None
+            (c for c in cpt_interps if c["label"] == seed_select.value), None
         )
         edited_store["seed"] = seed_select.value
         edited_store["layers"] = (
             []
             if _col is None
             else [
-                {"top": l["top"], "bottom": l["bottom"], "class": l["label"]}
+                {
+                    "top": l["top"],
+                    "bottom": l["bottom"],
+                    "class": _seed_class.get(l["label"], "clay"),
+                }
                 for l in _col["layers"]
             ]
         )
@@ -308,26 +384,7 @@ def _(cpt, to_vertical, vertical_select):
 
 
 @app.cell
-def _(at, cpt):
-    # groundwater level (m below surface), shared by the GWL annotation
-    # and the hydrostatic overlay
-    gwl = 2.5
-
-    # hydrostatic pore pressure below the GWL (0.00981 MPa per m of water
-    # column): a polyline in porePressureU2's x coordinate against the
-    # shared vertical axis — the overlay only renders while u2 is plotted
-    _final = float(cpt.finalDepth)
-    hydrostatic = {
-        "channel": "porePressureU2",
-        "points": [[0, at(gwl)], [0.00981 * (_final - gwl), at(_final)]],
-        "color": "#4269d0",
-        "dash": "4,3",
-    }
-    return gwl, hydrostatic
-
-
-@app.cell
-def _(at, interp_dummy):
+def _(at, cpt_interps):
     # layer boundaries converted to the selected vertical coordinate
     interpretations = [
         {
@@ -337,37 +394,118 @@ def _(at, interp_dummy):
                 for layer in col["layers"]
             ],
         }
-        for col in interp_dummy
+        for col in cpt_interps
     ]
     return (interpretations,)
 
 
 @app.cell(hide_code=True)
-def _(cpt, cpt_data):
-    # dummy soil interpretations, boundaries in m below surface
-    _final = max(d for d in cpt_data["depth"] if d is not None)
+def _(
+    BroXmlCpt,
+    InterpretationMethod,
+    RobertsonCptInterpretation,
+    UnitWeightMethod,
+    merge_thickness,
+):
+    # real interpretations via GEOLib+ (Deltares): Robertson (1990,
+    # normalized Qtn-Fr chart) and Lengkeek et al. 2022 (non-normalized
+    # qt/pa-Rf chart: the organic zone split into peat + organic clay, all
+    # zones renumbered, soft-soil boundaries refitted). GEOLib+ reads the
+    # BRO XML with its own reader because the interpreter needs its
+    # preprocessed CPT object (depth correction, stress profiles, pore
+    # pressures) -- brodata stays the source for the plotted channels.
+    # Zone labels follow the papers; colors extend the widget's palette
+    _ZONES = {
+        InterpretationMethod.ROBERTSON: {
+            "1": ("sensitive", "#c9b3d6"),
+            "2": ("organic", "#8a6642"),
+            "3": ("clay", "#78a86c"),
+            "4": ("silt mix", "#b5a642"),
+            "5": ("sand mix", "#d9cb48"),
+            "6": ("sand", "#f4e04d"),
+            "7": ("gravelly sand", "#d88c3c"),
+            "8": ("stiff sand", "#c9a227"),
+            "9": ("stiff fine gr.", "#5e8f68"),
+        },
+        InterpretationMethod.LENGKEEK_2022: {
+            "1": ("sensitive", "#c9b3d6"),
+            "2": ("peat", "#8a6642"),
+            "3": ("organic clay", "#9c8352"),
+            "4": ("clay", "#78a86c"),
+            "5": ("silt mix", "#b5a642"),
+            "6": ("sand mix", "#d9cb48"),
+            "7": ("sand", "#f4e04d"),
+            "8": ("gravelly sand", "#d88c3c"),
+            "9": ("stiff sand", "#c9a227"),
+            "10": ("stiff fine gr.", "#5e8f68"),
+        },
+    }
 
-    interp_dummy = [
-        {
-            "label": "Robertson",
-            "layers": [
-                {"top": cpt.predrilledDepth, "bottom": 2.4, "label": "sand", "color": "#f4e04d"},
-                {"top": 2.4, "bottom": 6.8, "label": "clay", "color": "#78a86c"},
-                {"top": 6.8, "bottom": 9.5, "label": "peat", "color": "#8a6642"},
-                {"top": 9.5, "bottom": _final, "label": "sand", "color": "#f4e04d"},
-            ],
-        },
-        {
-            "label": "CPT-Core-A",
-            "layers": [
-                {"top":cpt.predrilledDepth, "bottom": 2.1, "label": "sand", "color": "#f4e04d"},
-                {"top": 2.1, "bottom": 6.2, "label": "clay", "color": "#78a86c"},
-                {"top": 6.2, "bottom": 10.3, "label": "peat", "color": "#8a6642"},
-                {"top": 10.3, "bottom": _final, "label": "sand", "color": "#f4e04d"},
-            ],
-        },
+    _METHODS = [
+        ("Robertson", InterpretationMethod.ROBERTSON, UnitWeightMethod.ROBERTSON),
+        (
+            "Lengkeek 2022",
+            InterpretationMethod.LENGKEEK_2022,
+            UnitWeightMethod.LENGKEEK_2022,
+        ),
     ]
-    return (interp_dummy,)
+
+
+    def _interpret_one(path, method, unitweight, water_level):
+        _cpt = BroXmlCpt()
+        _cpt.read(path)
+        _cpt.pre_process_data()
+        _interp = RobertsonCptInterpretation()
+        _interp.interpretation_method = method
+        _interp.unitweightmethod = unitweight
+        # pore pressures from the given groundwater level, as m NAP
+        _interp.user_defined_water_level = True
+        _cpt.pwp = float(_cpt.local_reference_level) - water_level
+        _cpt.interpret_cpt(_interp)
+
+        # per-sample zones -> display layers: geolib merges sub-0.5 m runs
+        # but labels merged spans with every zone crossed ("8/3/5/4"), so
+        # resolve each span to its dominant zone by per-sample majority,
+        # then fuse neighbours that end up in the same zone
+        _bounds, _, _ = merge_thickness(cpt_data=_cpt, min_layer_thick=0.5)
+        _samples = list(zip(_cpt.depth, _cpt.lithology))
+        _layers = []
+        for _j in range(len(_bounds) - 1):
+            _top, _bottom = float(_bounds[_j]), float(_bounds[_j + 1])
+            _in_span = [z for _d, z in _samples if _top <= _d < _bottom]
+            if not _in_span:
+                continue
+            _label, _color = _ZONES[method][max(set(_in_span), key=_in_span.count)]
+            if _layers and _layers[-1]["label"] == _label:
+                _layers[-1]["bottom"] = _bottom
+            else:
+                _layers.append(
+                    {"top": _top, "bottom": _bottom, "label": _label, "color": _color}
+                )
+        return _layers
+
+
+    def interpret_bro(path, water_level):
+        """Both interpretation columns for one BRO CPT XML file.
+
+        Returns [{"label", "layers": [{"top", "bottom", "label", "color"},
+        ...]}, ...] with layer boundaries in m depth below surface;
+        ``water_level`` is the groundwater level in m NAP.
+        """
+        return [
+            {"label": _label, "layers": _interpret_one(path, _m, _uw, water_level)}
+            for _label, _m, _uw in _METHODS
+        ]
+
+    return (interpret_bro,)
+
+
+@app.cell(hide_code=True)
+def _(file_select, gwl, interpret_bro):
+    # the selected CPT's interpretation columns, driven by the file
+    # dropdown and the groundwater slider
+    cpt_interps = interpret_bro(file_select.value, gwl)
+    return (cpt_interps,)
 
 
 @app.cell
@@ -415,12 +553,13 @@ def _(mo):
 
 @app.cell(hide_code=True)
 def _(ConePenetrationTest, chainage, mo, pd):
-    # every sample CPT in one tidy long frame — name + nap + qc per row,
+    # every sample CPT in one tidy long frame — name + nap + qc + fs per
+    # row,
     # the ProfileViewer facade groups rows by the name column — plus
     # chainage positions from the delivered RD coordinates and each CPT's
     # surface level for the maaiveld overlay
-    _cpts = [
-        ConePenetrationTest(str(p))
+    _pairs = [
+        (str(p), ConePenetrationTest(str(p)))
         for p in sorted(
             (mo.notebook_dir().parent / "examples" / "broxml-cpt").glob("*.xml")
         )
@@ -428,8 +567,10 @@ def _(ConePenetrationTest, chainage, mo, pd):
     # chainage() walks the coords in the order given, so sort into profile
     # order first — filename order zigzags along this west–east line and
     # would inflate the chainages
-    _cpts.sort(key=lambda c: float(c.deliveredLocation.x))
+    _pairs.sort(key=lambda pc: float(pc[1].deliveredLocation.x))
+    _cpts = [_c for _, _c in _pairs]
     _frames = []
+
     for _c in _cpts:
         _df = _c.conePenetrationTest.apply(pd.to_numeric, errors="coerce")
         _frames.append(
@@ -438,6 +579,7 @@ def _(ConePenetrationTest, chainage, mo, pd):
                     "name": _c.broId,
                     "nap": float(_c.offset) - _df["depth"],
                     "coneResistance": _df["coneResistance"],
+                    "localFriction": _df["localFriction"],
                 }
             )
         )
@@ -449,13 +591,62 @@ def _(ConePenetrationTest, chainage, mo, pd):
         }
     )
     surface_levels = {_c.broId: float(_c.offset) for _c in _cpts}
-    return profile_data, profile_positions, surface_levels
+    profile_files = {_c.broId: _p for _p, _c in _pairs}
+    return profile_data, profile_files, profile_positions, surface_levels
+
+
+@app.cell(hide_code=True)
+def _(gwl, interpret_bro, profile_files):
+    # interpretation columns for every profile CPT, boundaries in
+    # canonical depth below surface — converted to NAP only at the widget
+    # boundary, like the single-CPT viewer does
+    profile_interps = {
+        _name: interpret_bro(_path, gwl)
+        for _name, _path in profile_files.items()
+    }
+    return (profile_interps,)
+
+
+@app.cell(hide_code=True)
+def _(mo):
+    # which interpretation method colors the profile's layer bars
+    profile_interp_select = mo.ui.radio(
+        options=["Robertson", "Lengkeek 2022"],
+        value="Lengkeek 2022",
+        label="profile interpretation",
+        inline=True,
+    )
+    profile_interp_select
+    return (profile_interp_select,)
+
+
+@app.cell(hide_code=True)
+def _(profile_interp_select, profile_interps, surface_levels):
+    # the strips' layer bars: one interpretation method for the whole
+    # profile, picked by the radio; depth-below-surface boundaries become
+    # NAP via each CPT's own surface level -- only here, at the widget
+    # boundary
+    profile_layers = {
+        _name: [
+            {
+                **_l,
+                "top": surface_levels[_name] - _l["top"],
+                "bottom": surface_levels[_name] - _l["bottom"],
+            }
+            for _col in _cols
+            if _col["label"] == profile_interp_select.value
+            for _l in _col["layers"]
+        ]
+        for _name, _cols in profile_interps.items()
+    }
+    return (profile_layers,)
 
 
 @app.cell
 def _(
     ProfileViewer,
     profile_data,
+    profile_layers,
     profile_positions,
     set_selected_cpt,
     surface_levels,
@@ -464,16 +655,18 @@ def _(
     # honest axis; the toolbar toggle switches to equal spacing. The width
     # deliberately exceeds the notebook cell: the profile scrolls sideways
     # and the overview minimap appears above it. Clicking a strip syncs its
-    # name back via `selected`
+    # name back via `selected`. Each strip's left-edge layer bar shows
+    # the interpretation the radio picked
     profile = ProfileViewer(
         profile_data,
         positions=profile_positions,
-        channel="coneResistance",
+        channels=["coneResistance", "localFriction"],
+        layers=profile_layers,
         overlays=[
             {"levels": surface_levels, "label": "maaiveld", "color": "#8a6642"}
         ],
-        height=420,
-        width=1600,
+        height=600,
+        width=1000,
     )
 
     profile.observe(
