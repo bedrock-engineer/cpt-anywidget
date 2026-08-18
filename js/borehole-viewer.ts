@@ -4,6 +4,7 @@ import * as d3 from "./lib/d3";
 import { focusRig, haloText } from "./lib/focus-rig";
 import { makeVerticalScale, plotClip, verticalAxisTitle, yAxisFor } from "./lib/frame";
 import { hatchDefs } from "./lib/hatch";
+import { boundaryData, boundaryLabels, labelMargin, placeDepthLabels } from "./lib/layers";
 import type { Annotation, AxisLimits, Band, Layer, VerticalSpec } from "./lib/types";
 import { resolveVertical } from "./lib/vertical";
 import { wrapLines } from "./lib/wrap";
@@ -46,6 +47,19 @@ export default {
     const marginTop = 24;
     const marginBottom = 10;
 
+    // format from the resolved spec: signed for NAP so values near the
+    // datum read unambiguously; shared by the crosshair readout and the
+    // boundary depth labels
+    const formatVertical = d3.format(vert.format);
+
+    // bands sit flush against the y axis; the boundary-label strip and
+    // the hover readouts (soil name + description) stack to their right,
+    // like the CPT viewer's value readouts — the svg widens past
+    // `width`, the plot keeps its coordinates
+    const labelsLeft = width - marginRight;
+    const readoutWidth = 160;
+    const readoutX = labelsLeft + labelMargin + 8;
+
     const x = d3
       .scaleLinear()
       .domain([0, 1])
@@ -65,8 +79,8 @@ export default {
     const svg = d3
       .select(el)
       .append("svg")
-      .attr("viewBox", [0, 0, width, height].join(","))
-      .attr("width", width)
+      .attr("viewBox", [0, 0, width + labelMargin + readoutWidth, height].join(","))
+      .attr("width", width + labelMargin + readoutWidth)
       .attr("height", height)
       // user-select suppresses text selection during drags/brushes; the
       // -webkit- prefix is still required in Safari
@@ -133,6 +147,29 @@ export default {
       .call(bandX)
       .attr("fill", (b) => `url(#${hatchId.get(b.hatch)})`);
 
+    // explicit boundary lines: adjacent layers of the same soil render
+    // identical bands, so the shared edge needs its own stroke to stay
+    // visible
+    const boundaries = [...new Set(layers.flatMap((l) => [l.top, l.bottom]))];
+
+    const boundaryLine = gLayers
+      .append("g")
+      .selectAll<SVGLineElement, number>("line")
+      .data(boundaries)
+      .join("line")
+      .attr("x1", marginLeft)
+      .attr("x2", width - marginRight)
+      .attr("stroke", "#333")
+      .attr("stroke-opacity", 0.35)
+      .attr("stroke-width", 0.5);
+
+    // boundary depth labels in the strip right of the bands, mirroring
+    // the interpretation columns: dodged apart when layers get thin,
+    // with leader lines back to displaced labels. The join works in
+    // strip-local coordinates, so the group shifts to the strip
+    const gBoundaries = svg.append("g").attr("transform", `translate(${labelsLeft},0)`);
+    boundaryLabels(gBoundaries, boundaryData(layers, formatVertical), "right");
+
     // white halo keeps names legible over the dark soil bands; visibility
     // is decided per zoom level — labels appear as their layer gets tall
     // enough in pixels
@@ -161,6 +198,10 @@ export default {
       placeBandRects(bandRect, y1);
       placeBandRects(hatchRect, y1);
 
+      boundaryLine.attr("y1", (b) => y1(b)).attr("y2", (b) => y1(b));
+
+      placeDepthLabels(gBoundaries, y1, "right");
+
       soilLabel
         .attr("y", (l) => (y1(l.top) + y1(l.bottom)) / 2)
         .attr("display", (l) => (Math.abs(y1(l.bottom) - y1(l.top)) >= 14 ? null : "none"));
@@ -173,28 +214,24 @@ export default {
       width,
     });
 
-    // format from the resolved spec: signed for NAP so values near the
-    // datum read unambiguously
-    const formatVertical = d3.format(vert.format);
-
     // crosshair at the hovered elevation: the shared skin from the rig,
     // plus this log's own extra readout — the hovered layer's soil name
     const rig = focusRig(svg, { marginLeft, ruleX2: width - marginRight });
 
     const layerReadout = rig.focus
       .append("text")
-      .attr("x", width - marginRight - 6)
-      .attr("y", -6)
-      .attr("text-anchor", "end")
+      .attr("x", readoutX)
+      .attr("dy", "0.32em")
+      .attr("text-anchor", "start")
       .attr("font-size", 12)
       .attr("fill", "#333")
       .call(haloText);
 
-    // the hovered layer's free-text description, wrapped to the plot
+    // the hovered layer's free-text description, wrapped to the gutter
     // width (character budget estimates glyphs at half the font size)
     const descFontSize = 10;
     const descLineHeight = 12;
-    const descMaxChars = Math.floor((width - marginLeft - marginRight) / (descFontSize * 0.5));
+    const descMaxChars = Math.floor((readoutWidth - 8) / (descFontSize * 0.5));
 
     const descReadout = rig.focus
       .append("text")
@@ -208,19 +245,16 @@ export default {
       layers.map((l) => [l, l.description ? wrapLines(l.description, descMaxChars) : []]),
     );
 
-    // below the rule in the upper half, above it in the lower half, so
-    // the block stays inside the plot when hovering near the bottom
-    const placeDescription = (layer: Layer, ym: number) => {
+    // the soil name sits on the rule, the description always reads
+    // downward from it
+    const placeDescription = (layer: Layer) => {
       const lines = descLines.get(layer) ?? [];
-      const below = ym < (marginTop + height - marginBottom) / 2;
       descReadout
         .selectAll<SVGTSpanElement, string>("tspan")
         .data(lines)
         .join("tspan")
-        .attr("x", marginLeft + 4)
-        .attr("y", (_, i) =>
-          below ? 14 + i * descLineHeight : -12 - (lines.length - 1 - i) * descLineHeight,
-        )
+        .attr("x", readoutX)
+        .attr("y", (_, i) => 14 + i * descLineHeight)
         .text((line) => line);
     };
 
@@ -253,7 +287,7 @@ export default {
 
       rig.readout.text(`${formatVertical(value)} m`);
       layerReadout.text(layer.label ?? "");
-      placeDescription(layer, ym);
+      placeDescription(layer);
     }
 
     svg.on("pointerenter pointermove", pointermoved).on("pointerleave", rig.hide);

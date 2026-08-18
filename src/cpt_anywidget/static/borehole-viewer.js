@@ -3643,6 +3643,118 @@ function hatchDefs(svg, chars) {
   svg.append("defs").selectAll("pattern").data(chars).join("pattern").attr("id", (h) => ids.get(h)).attr("width", 6).attr("height", 6).attr("patternUnits", "userSpaceOnUse").html((h) => HATCH_SHAPE[h]);
   return ids;
 }
+function dodgeLabels(anchors, separation, extent) {
+  const placed = Array.from({ length: anchors.length }, () => 0);
+  if (anchors.length === 0) {
+    return placed;
+  }
+  const centerOf = (cluster) => {
+    const mean = cluster.anchorSum / cluster.size;
+    if (!extent) {
+      return mean;
+    }
+    const halfSpan = (cluster.size - 1) * separation / 2;
+    return Math.max(Math.min(mean, extent[1] - halfSpan), extent[0] + halfSpan);
+  };
+  const firstMemberOf = (cluster) => centerOf(cluster) - (cluster.size - 1) * separation / 2;
+  const lastMemberOf = (cluster) => centerOf(cluster) + (cluster.size - 1) * separation / 2;
+  const clusters = [];
+  anchors.forEach((anchor, index) => {
+    clusters.push({ anchorSum: anchor, size: 1, firstIndex: index });
+    while (clusters.length > 1) {
+      const above = clusters[clusters.length - 2];
+      const below = clusters[clusters.length - 1];
+      const gap = firstMemberOf(below) - lastMemberOf(above);
+      if (gap >= separation - 1e-6) {
+        break;
+      }
+      above.anchorSum += below.anchorSum;
+      above.size += below.size;
+      clusters.pop();
+    }
+  });
+  for (const cluster of clusters) {
+    const center2 = centerOf(cluster);
+    for (let member = 0; member < cluster.size; member++) {
+      placed[cluster.firstIndex + member] = center2 + (member - (cluster.size - 1) / 2) * separation;
+    }
+  }
+  return placed;
+}
+const labelMargin = 28;
+const depthLabelHeight = 12;
+const labelGeometry = {
+  left: {
+    textX: labelMargin - 4,
+    anchor: "end",
+    leaderStart: labelMargin,
+    leaderEnd: labelMargin - 3
+  },
+  right: { textX: 4, anchor: "start", leaderStart: 0, leaderEnd: 3 }
+};
+function boundaryData(layers, format2) {
+  const last = layers[layers.length - 1];
+  return layers.length ? [
+    ...layers.map((l) => ({ layer: l, which: "top", format: format2 })),
+    { layer: last, which: "bottom", format: format2 }
+  ] : [];
+}
+function boundaryLabels(parent, data, side = "left") {
+  const geom = labelGeometry[side];
+  const sel = parent.selectAll("g.boundary");
+  (typeof data === "function" ? sel.data(data) : sel.data(data)).join((enter) => {
+    const g = enter.append("g").attr("class", "boundary");
+    g.append("text").attr("font-size", 10).attr("x", geom.textX).attr("dominant-baseline", "middle").attr("text-anchor", geom.anchor);
+    g.append("path").attr("fill", "none").attr("stroke", "#888").attr("stroke-width", 0.75);
+    return g;
+  });
+}
+function placeDepthLabels(column, y1, side = "left") {
+  const geom = labelGeometry[side];
+  const leaderMidX = (geom.leaderStart + geom.leaderEnd) / 2;
+  const boundarySel = column.selectAll("g.boundary");
+  const nodes = boundarySel.nodes();
+  const data = boundarySel.data();
+  if (!nodes.length) {
+    return;
+  }
+  const [r0, r1] = y1.range();
+  const lo = Math.min(r0, r1);
+  const hi = Math.max(r0, r1);
+  const anchors = data.map((b) => y1(b.layer[b.which]));
+  const visible = [];
+  anchors.forEach((a, i) => {
+    if (a >= lo && a <= hi) {
+      visible.push(i);
+    }
+  });
+  if (visible.length * depthLabelHeight > hi - lo) {
+    boundarySel.attr("display", "none");
+    return;
+  }
+  const placed = dodgeLabels(
+    visible.map((i) => anchors[i]),
+    depthLabelHeight,
+    [lo + depthLabelHeight / 2, hi - depthLabelHeight / 2]
+  );
+  const posByIndex = /* @__PURE__ */ new Map();
+  visible.forEach((bi, j) => posByIndex.set(bi, placed[j]));
+  nodes.forEach((node, i) => {
+    const g = select(node);
+    const p = posByIndex.get(i);
+    if (p === void 0) {
+      g.attr("display", "none");
+      return;
+    }
+    g.attr("display", null);
+    g.select("text").attr("y", p).text(data[i].format(data[i].layer[data[i].which]));
+    const displaced = Math.abs(p - anchors[i]) > 0.5;
+    g.select("path").attr("display", displaced ? null : "none").attr(
+      "d",
+      displaced ? `M${geom.leaderStart},${anchors[i]}C${leaderMidX},${anchors[i]} ${leaderMidX},${p} ${geom.leaderEnd},${p}` : null
+    );
+  });
+}
 const verticalDefaults = {
   depth: { label: "depth [m]", up: false, format: ".2f" },
   nap: { label: "NAP [m]", up: true, format: "+.2f" }
@@ -3749,6 +3861,10 @@ const boreholeViewer = {
     const marginRight = 20;
     const marginTop = 24;
     const marginBottom = 10;
+    const formatVertical = format(vert.format);
+    const labelsLeft = width - marginRight;
+    const readoutWidth = 160;
+    const readoutX = labelsLeft + labelMargin + 8;
     const x = linear().domain([0, 1]).range([marginLeft, width - marginRight]);
     const first = layers[0];
     const last = layers[layers.length - 1];
@@ -3758,7 +3874,7 @@ const boreholeViewer = {
       axisLimits[vert.key]
     );
     const yAxis = yAxisFor(marginLeft, height);
-    const svg = select(el).append("svg").attr("viewBox", [0, 0, width, height].join(",")).attr("width", width).attr("height", height).attr(
+    const svg = select(el).append("svg").attr("viewBox", [0, 0, width + labelMargin + readoutWidth, height].join(",")).attr("width", width + labelMargin + readoutWidth).attr("height", height).attr(
       "style",
       "max-width: 100%; height: auto; user-select: none; -webkit-user-select: none;"
     );
@@ -3782,11 +3898,17 @@ const boreholeViewer = {
     const gLayers = svg.append("g").attr("clip-path", `url(#${clipId})`);
     const bandRect = gLayers.append("g").selectAll("rect").data(bands).join("rect").call(bandX).attr("fill", (b) => b.color).attr("stroke", "white").attr("stroke-width", 0.5);
     const hatchRect = gLayers.append("g").selectAll("rect").data(bands.filter(hasHatch)).join("rect").call(bandX).attr("fill", (b) => `url(#${hatchId.get(b.hatch)})`);
+    const boundaries = [...new Set(layers.flatMap((l) => [l.top, l.bottom]))];
+    const boundaryLine = gLayers.append("g").selectAll("line").data(boundaries).join("line").attr("x1", marginLeft).attr("x2", width - marginRight).attr("stroke", "#333").attr("stroke-opacity", 0.35).attr("stroke-width", 0.5);
+    const gBoundaries = svg.append("g").attr("transform", `translate(${labelsLeft},0)`);
+    boundaryLabels(gBoundaries, boundaryData(layers, formatVertical), "right");
     const soilLabel = gLayers.append("g").selectAll("text").data(layers).join("text").attr("x", x(0.5)).attr("dy", "0.32em").attr("text-anchor", "middle").attr("font-size", 10).attr("fill", "#333").call(haloText, 1.5).text((l) => l.label ?? "");
     const placeBandRects = (rect, y1) => rect.attr("y", (b) => Math.min(y1(b.layer.top), y1(b.layer.bottom))).attr("height", (b) => Math.abs(y1(b.layer.bottom) - y1(b.layer.top)));
     const placeLayers = (y1) => {
       placeBandRects(bandRect, y1);
       placeBandRects(hatchRect, y1);
+      boundaryLine.attr("y1", (b) => y1(b)).attr("y2", (b) => y1(b));
+      placeDepthLabels(gBoundaries, y1, "right");
       soilLabel.attr("y", (l) => (y1(l.top) + y1(l.bottom)) / 2).attr("display", (l) => Math.abs(y1(l.bottom) - y1(l.top)) >= 14 ? null : "none");
     };
     const placeAnnotations = annotationLayer(svg, annotations, {
@@ -3795,23 +3917,18 @@ const boreholeViewer = {
       marginRight,
       width
     });
-    const formatVertical = format(vert.format);
     const rig = focusRig(svg, { marginLeft, ruleX2: width - marginRight });
-    const layerReadout = rig.focus.append("text").attr("x", width - marginRight - 6).attr("y", -6).attr("text-anchor", "end").attr("font-size", 12).attr("fill", "#333").call(haloText);
+    const layerReadout = rig.focus.append("text").attr("x", readoutX).attr("dy", "0.32em").attr("text-anchor", "start").attr("font-size", 12).attr("fill", "#333").call(haloText);
     const descFontSize = 10;
     const descLineHeight = 12;
-    const descMaxChars = Math.floor((width - marginLeft - marginRight) / (descFontSize * 0.5));
+    const descMaxChars = Math.floor((readoutWidth - 8) / (descFontSize * 0.5));
     const descReadout = rig.focus.append("text").attr("font-size", descFontSize).attr("fill", "#555").call(haloText);
     const descLines = new Map(
       layers.map((l) => [l, l.description ? wrapLines(l.description, descMaxChars) : []])
     );
-    const placeDescription = (layer, ym) => {
+    const placeDescription = (layer) => {
       const lines = descLines.get(layer) ?? [];
-      const below = ym < (marginTop + height - marginBottom) / 2;
-      descReadout.selectAll("tspan").data(lines).join("tspan").attr("x", marginLeft + 4).attr(
-        "y",
-        (_, i) => below ? 14 + i * descLineHeight : -12 - (lines.length - 1 - i) * descLineHeight
-      ).text((line) => line);
+      descReadout.selectAll("tspan").data(lines).join("tspan").attr("x", readoutX).attr("y", (_, i) => 14 + i * descLineHeight).text((line) => line);
     };
     const bisectTop = layers.length < 2 || layers[0].top <= layers[1].top ? bisector((l) => l.top).right : bisector((l, v) => v - l.top).right;
     const layerAt = (value) => {
@@ -3829,7 +3946,7 @@ const boreholeViewer = {
       rig.show(ym);
       rig.readout.text(`${formatVertical(value)} m`);
       layerReadout.text(layer.label ?? "");
-      placeDescription(layer, ym);
+      placeDescription(layer);
     }
     svg.on("pointerenter pointermove", pointermoved).on("pointerleave", rig.hide);
     const current = verticalZoom(svg, {

@@ -4528,10 +4528,16 @@ function dodgeLabels(anchors, separation, extent) {
   return placed;
 }
 const labelMargin = 28;
-const labelTextX = labelMargin - 4;
-const leaderEndX = labelMargin - 3;
-const leaderMidX = (labelMargin + leaderEndX) / 2;
 const depthLabelHeight = 12;
+const labelGeometry = {
+  left: {
+    textX: labelMargin - 4,
+    anchor: "end",
+    leaderStart: labelMargin,
+    leaderEnd: labelMargin - 3
+  },
+  right: { textX: 4, anchor: "start", leaderStart: 0, leaderEnd: 3 }
+};
 function layerRenderer({
   columnWidth,
   classColor,
@@ -4557,25 +4563,28 @@ function layerRenderer({
     layerGroup.select("title").text((d) => d.bands ? d.label ?? "" : "");
     layerGroup.selectAll("rect.band").data(bandData).join("rect").attr("class", "band").call(bandX).attr("fill", (b) => b.color).attr("stroke", "white").attr("stroke-width", 0.5);
     layerGroup.selectAll("rect.hatch").data((d) => bandData(d).filter((b) => b.hatch)).join("rect").attr("class", "hatch").call(bandX).attr("fill", (b) => `url(#${hatchId.get(b.hatch)})`);
-    const boundaryData = (d) => {
-      const ls = typeof layers === "function" ? layers(d) : layers;
-      const last = ls[ls.length - 1];
-      return ls.length ? [
-        ...ls.map((l) => ({
-          layer: l,
-          which: "top",
-          format: formatBoundary
-        })),
-        { layer: last, which: "bottom", format: formatBoundary }
-      ] : [];
-    };
-    parent.selectAll("g.boundary").data(boundaryData).join((enter) => {
-      const g = enter.append("g").attr("class", "boundary");
-      g.append("text").attr("font-size", 10).attr("x", labelTextX).attr("dominant-baseline", "middle").attr("text-anchor", "end");
-      g.append("path").attr("fill", "none").attr("stroke", "#888").attr("stroke-width", 0.75);
-      return g;
-    });
+    boundaryLabels(
+      parent,
+      (d) => boundaryData(typeof layers === "function" ? layers(d) : layers, formatBoundary)
+    );
   };
+}
+function boundaryData(layers, format2) {
+  const last = layers[layers.length - 1];
+  return layers.length ? [
+    ...layers.map((l) => ({ layer: l, which: "top", format: format2 })),
+    { layer: last, which: "bottom", format: format2 }
+  ] : [];
+}
+function boundaryLabels(parent, data, side = "left") {
+  const geom = labelGeometry[side];
+  const sel = parent.selectAll("g.boundary");
+  (typeof data === "function" ? sel.data(data) : sel.data(data)).join((enter) => {
+    const g = enter.append("g").attr("class", "boundary");
+    g.append("text").attr("font-size", 10).attr("x", geom.textX).attr("dominant-baseline", "middle").attr("text-anchor", geom.anchor);
+    g.append("path").attr("fill", "none").attr("stroke", "#888").attr("stroke-width", 0.75);
+    return g;
+  });
 }
 function placeLayerColumn(parent, y1) {
   const layerGroup = parent.selectAll("g.layer");
@@ -4586,7 +4595,9 @@ function placeLayerColumn(parent, y1) {
     placeDepthLabels(select(this), y1);
   });
 }
-function placeDepthLabels(column, y1) {
+function placeDepthLabels(column, y1, side = "left") {
+  const geom = labelGeometry[side];
+  const leaderMidX = (geom.leaderStart + geom.leaderEnd) / 2;
   const boundarySel = column.selectAll("g.boundary");
   const nodes = boundarySel.nodes();
   const data = boundarySel.data();
@@ -4603,6 +4614,10 @@ function placeDepthLabels(column, y1) {
       visible.push(i);
     }
   });
+  if (visible.length * depthLabelHeight > hi - lo) {
+    boundarySel.attr("display", "none");
+    return;
+  }
   const placed = dodgeLabels(
     visible.map((i) => anchors[i]),
     depthLabelHeight,
@@ -4622,7 +4637,7 @@ function placeDepthLabels(column, y1) {
     const displaced = Math.abs(p - anchors[i]) > 0.5;
     g.select("path").attr("display", displaced ? null : "none").attr(
       "d",
-      displaced ? `M${labelMargin},${anchors[i]}C${leaderMidX},${anchors[i]} ${leaderMidX},${p} ${leaderEndX},${p}` : null
+      displaced ? `M${geom.leaderStart},${anchors[i]}C${leaderMidX},${anchors[i]} ${leaderMidX},${p} ${geom.leaderEnd},${p}` : null
     );
   });
 }

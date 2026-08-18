@@ -5,16 +5,28 @@ import type { AnySelection, Band, Layer, VerticalScale } from "./types";
 /** band datum with its layer's vertical extent copied on */
 type PlacedBand = Band & { top: number; bottom: number };
 
-// strip left of the rects for depth labels, sized so a signed
+// strip beside the rects for depth labels, sized so a signed
 // two-decimal NAP value ("+12.50", ~31px at 10px font) clears the clip
 // edge 8px into the inter-column gap
 export const labelMargin = 28;
-const labelTextX = labelMargin - 4; // right edge of the depth text
-const leaderEndX = labelMargin - 3; // leaders stop just short of the text
-// both Bézier control points sit at the midpoint x, so the leader
-// leaves the boundary and meets the label horizontally (an S-curve)
-const leaderMidX = (labelMargin + leaderEndX) / 2;
 const depthLabelHeight = 12; // 10px font + breathing room: the dodge separation
+
+/** which side of the rects the label strip sits on — the CPT columns
+    label on the left, the borehole log on the right */
+export type LabelSide = "left" | "right";
+
+// strip-local geometry per side: the rect edge is at x=labelMargin
+// (left strip) or x=0 (right strip); text hugs the outer edge, leaders
+// run from the rect edge and stop just short of the text
+const labelGeometry = {
+  left: {
+    textX: labelMargin - 4,
+    anchor: "end",
+    leaderStart: labelMargin,
+    leaderEnd: labelMargin - 3,
+  },
+  right: { textX: 4, anchor: "start", leaderStart: 0, leaderEnd: 3 },
+} as const;
 
 /** re-callable column renderer bound to a display config; layers is an
     array or an accessor of the column datum */
@@ -131,38 +143,48 @@ export function layerRenderer({
     // re-join), so placement reads the value through per frame; they
     // also carry the formatter, which is how it reaches the placement
     // pass (placement re-selects rather than closing over the renderer)
-    const boundaryData = (d: any): Boundary[] => {
-      const ls = typeof layers === "function" ? layers(d) : layers;
-      const last = ls[ls.length - 1];
-      return ls.length
-        ? [
-            ...ls.map((l: Layer) => ({
-              layer: l,
-              which: "top" as const,
-              format: formatBoundary,
-            })),
-            { layer: last, which: "bottom" as const, format: formatBoundary },
-          ]
-        : [];
-    };
-
-    parent
-      .selectAll<SVGGElement, Boundary>("g.boundary")
-      .data(boundaryData)
-      .join((enter) => {
-        const g = enter.append("g").attr("class", "boundary");
-
-        g.append("text")
-          .attr("font-size", 10)
-          .attr("x", labelTextX)
-          .attr("dominant-baseline", "middle")
-          .attr("text-anchor", "end");
-
-        g.append("path").attr("fill", "none").attr("stroke", "#888").attr("stroke-width", 0.75);
-
-        return g;
-      });
+    boundaryLabels(parent, (d: any) =>
+      boundaryData(typeof layers === "function" ? layers(d) : layers, formatBoundary),
+    );
   };
+}
+
+/** boundary label datums for a layer stack: every layer's top plus the
+    last layer's bottom, carrying the formatter placement reads back */
+export function boundaryData(layers: Layer[], format: (value: number) => string): Boundary[] {
+  const last = layers[layers.length - 1];
+  return layers.length
+    ? [
+        ...layers.map((l) => ({ layer: l, which: "top" as const, format })),
+        { layer: last, which: "bottom" as const, format },
+      ]
+    : [];
+}
+
+/** join the boundary label skeletons (text + leader path) under parent,
+    in strip-local coordinates (the label strip spans [0, labelMargin]);
+    placeDepthLabels does all placement, dodging, and text — call it with
+    the same side */
+export function boundaryLabels(
+  parent: AnySelection<SVGGElement>,
+  data: Boundary[] | ((d: any) => Boundary[]),
+  side: LabelSide = "left",
+): void {
+  const geom = labelGeometry[side];
+  const sel = parent.selectAll<SVGGElement, Boundary>("g.boundary");
+  (typeof data === "function" ? sel.data(data) : sel.data(data)).join((enter) => {
+    const g = enter.append("g").attr("class", "boundary");
+
+    g.append("text")
+      .attr("font-size", 10)
+      .attr("x", geom.textX)
+      .attr("dominant-baseline", "middle")
+      .attr("text-anchor", geom.anchor);
+
+    g.append("path").attr("fill", "none").attr("stroke", "#888").attr("stroke-width", 0.75);
+
+    return g;
+  });
 }
 
 // placement re-selects instead of closing over the join, so it stays
@@ -193,7 +215,7 @@ export function placeLayerColumn(parent: AnySelection<SVGGElement>, y1: Vertical
 
 /** one depth label on a layer boundary: every layer's top plus the last
     layer's bottom, reading through to the live layer object */
-interface Boundary {
+export interface Boundary {
   layer: Layer;
   which: "top" | "bottom";
   format: (value: number) => string;
@@ -205,7 +227,15 @@ interface Boundary {
 // a leader line back to its boundary. A pure function of the zoomed
 // scale: zooming in relaxes labels back to their anchors and the
 // leaders disappear
-function placeDepthLabels(column: AnySelection<SVGGElement>, y1: VerticalScale): void {
+export function placeDepthLabels(
+  column: AnySelection<SVGGElement>,
+  y1: VerticalScale,
+  side: LabelSide = "left",
+): void {
+  const geom = labelGeometry[side];
+  // both Bézier control points sit at the midpoint x, so the leader
+  // leaves the boundary and meets the label horizontally (an S-curve)
+  const leaderMidX = (geom.leaderStart + geom.leaderEnd) / 2;
   const boundarySel = column.selectAll<SVGGElement, Boundary>("g.boundary");
   const nodes = boundarySel.nodes();
   const data = boundarySel.data();
@@ -228,6 +258,15 @@ function placeDepthLabels(column: AnySelection<SVGGElement>, y1: VerticalScale):
       visible.push(i);
     }
   });
+
+  // more visible boundaries than the strip can hold means every label
+  // ends up displaced onto a leader — noise, not information. Hide the
+  // whole strip instead; zooming in shrinks the visible set until the
+  // labels fit and come back
+  if (visible.length * depthLabelHeight > hi - lo) {
+    boundarySel.attr("display", "none");
+    return;
+  }
 
   // half a label of padding keeps the edge labels fully inside the clip
   const placed = dodgeLabels(
@@ -257,7 +296,7 @@ function placeDepthLabels(column: AnySelection<SVGGElement>, y1: VerticalScale):
       .attr(
         "d",
         displaced
-          ? `M${labelMargin},${anchors[i]}C${leaderMidX},${anchors[i]} ${leaderMidX},${p} ${leaderEndX},${p}`
+          ? `M${geom.leaderStart},${anchors[i]}C${leaderMidX},${anchors[i]} ${leaderMidX},${p} ${geom.leaderEnd},${p}`
           : null,
       );
   });
