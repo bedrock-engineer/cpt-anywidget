@@ -6,10 +6,11 @@ import { makeVerticalScale, plotClip, verticalAxisTitle, yAxisFor } from "./lib/
 import { hatchDefs } from "./lib/hatch";
 import type { Annotation, AxisLimits, Band, Layer, VerticalSpec } from "./lib/types";
 import { resolveVertical } from "./lib/vertical";
+import { wrapLines } from "./lib/wrap";
 import { verticalZoom } from "./lib/zoom";
 
-/** the synced traits — the TS mirror of BHRGTViewer's traitlets */
-interface BhrgtModel {
+/** the synced traits — the TS mirror of BoreholeViewer's traitlets */
+interface BoreholeModel {
   layers: Layer[];
   verticalKey: string | VerticalSpec;
   axisLimits: AxisLimits;
@@ -22,7 +23,7 @@ interface BhrgtModel {
 type LayerBand = Band & { layer: Layer };
 
 export default {
-  render({ model, el }: RenderProps<BhrgtModel>) {
+  render({ model, el }: RenderProps<BoreholeModel>) {
     // [{top, bottom, label, bands: [{x1, x2, color, hatch?}]}] — top/bottom
     // in the current vertical coordinate, band x proportional in [0, 1]
     const layers = model.get("layers") ?? [];
@@ -74,7 +75,7 @@ export default {
         "max-width: 100%; height: auto; user-select: none; -webkit-user-select: none;",
       );
 
-    const clipId = plotClip(svg, "bhrgt-clip", {
+    const clipId = plotClip(svg, "borehole-clip", {
       x: marginLeft,
       y: marginTop,
       width: width - marginLeft - marginRight,
@@ -84,7 +85,7 @@ export default {
     // one <pattern> def per hatch char actually used by the data
     const usedHatches = [
       ...new Set(layers.flatMap((l) => (l.bands ?? []).map((b) => b.hatch))),
-    ].filter(Boolean) as string[];
+    ].filter((h): h is string => !!h);
 
     const hatchId = hatchDefs(svg, usedHatches);
 
@@ -100,13 +101,22 @@ export default {
       (layer.bands ?? []).map((b) => ({ ...b, layer })),
     );
 
+    const hasHatch = (b: LayerBand): b is LayerBand & { hatch: string } => !!b.hatch;
+
+    // generic over the datum so the hatch join's narrowed type fits too
+    // (d3's Selection is invariant in its datum)
+    type BandSelection<B extends LayerBand> = d3.Selection<SVGRectElement, B, SVGGElement, unknown>;
+
     // horizontal extent is static (only y zooms), shared by both joins
-    const bandX = (rect: d3.Selection<SVGRectElement, LayerBand, SVGGElement, unknown>) =>
+    const bandX = <B extends LayerBand>(rect: BandSelection<B>) =>
       rect.attr("x", (b) => x(b.x1)).attr("width", (b) => x(b.x2) - x(b.x1));
 
+    // one sub-group per join: honest selectors and explicit z-order
+    // (fills, hatch overlays, then labels on top)
     const gLayers = svg.append("g").attr("clip-path", `url(#${clipId})`);
 
     const bandRect = gLayers
+      .append("g")
       .selectAll<SVGRectElement, LayerBand>("rect")
       .data(bands)
       .join("rect")
@@ -116,16 +126,18 @@ export default {
       .attr("stroke-width", 0.5);
 
     const hatchRect = gLayers
-      .selectAll<SVGRectElement, LayerBand>(null as unknown as string)
-      .data(bands.filter((b) => b.hatch))
+      .append("g")
+      .selectAll<SVGRectElement, LayerBand>("rect")
+      .data(bands.filter(hasHatch))
       .join("rect")
       .call(bandX)
-      .attr("fill", (b) => `url(#${hatchId.get(b.hatch!)})`);
+      .attr("fill", (b) => `url(#${hatchId.get(b.hatch)})`);
 
     // white halo keeps names legible over the dark soil bands; visibility
     // is decided per zoom level — labels appear as their layer gets tall
     // enough in pixels
     const soilLabel = gLayers
+      .append("g")
       .selectAll<SVGTextElement, Layer>("text")
       .data(layers)
       .join("text")
@@ -134,17 +146,20 @@ export default {
       .attr("text-anchor", "middle")
       .attr("font-size", 10)
       .attr("fill", "#333")
-      .attr("stroke", "white")
-      .attr("stroke-width", 1.5)
-      .attr("paint-order", "stroke")
+      .call(haloText, 1.5)
       .text((l) => l.label ?? "");
 
+    const placeBandRects = <B extends LayerBand>(
+      rect: BandSelection<B>,
+      y1: d3.ScaleLinear<number, number>,
+    ) =>
+      rect
+        .attr("y", (b) => Math.min(y1(b.layer.top), y1(b.layer.bottom)))
+        .attr("height", (b) => Math.abs(y1(b.layer.bottom) - y1(b.layer.top)));
+
     const placeLayers = (y1: d3.ScaleLinear<number, number>) => {
-      for (const rect of [bandRect, hatchRect]) {
-        rect
-          .attr("y", (b) => Math.min(y1(b.layer.top), y1(b.layer.bottom)))
-          .attr("height", (b) => Math.abs(y1(b.layer.bottom) - y1(b.layer.top)));
-      }
+      placeBandRects(bandRect, y1);
+      placeBandRects(hatchRect, y1);
 
       soilLabel
         .attr("y", (l) => (y1(l.top) + y1(l.bottom)) / 2)
@@ -175,6 +190,40 @@ export default {
       .attr("fill", "#333")
       .call(haloText);
 
+    // the hovered layer's free-text description, wrapped to the plot
+    // width (character budget estimates glyphs at half the font size)
+    const descFontSize = 10;
+    const descLineHeight = 12;
+    const descMaxChars = Math.floor((width - marginLeft - marginRight) / (descFontSize * 0.5));
+
+    const descReadout = rig.focus
+      .append("text")
+      .attr("font-size", descFontSize)
+      .attr("fill", "#555")
+      .call(haloText);
+
+    // wrapped once at build time — the text is static per layer, only
+    // the block's position follows the pointer
+    const descLines = new Map(
+      layers.map((l) => [l, l.description ? wrapLines(l.description, descMaxChars) : []]),
+    );
+
+    // below the rule in the upper half, above it in the lower half, so
+    // the block stays inside the plot when hovering near the bottom
+    const placeDescription = (layer: Layer, ym: number) => {
+      const lines = descLines.get(layer) ?? [];
+      const below = ym < (marginTop + height - marginBottom) / 2;
+      descReadout
+        .selectAll<SVGTSpanElement, string>("tspan")
+        .data(lines)
+        .join("tspan")
+        .attr("x", marginLeft + 4)
+        .attr("y", (_, i) =>
+          below ? 14 + i * descLineHeight : -12 - (lines.length - 1 - i) * descLineHeight,
+        )
+        .text((line) => line);
+    };
+
     // bisect matching the layer direction: depth tops ascend, nap tops
     // descend; the candidate is the last layer starting at or above the
     // value, then containment rejects values past its bottom (gaps, ends)
@@ -204,6 +253,7 @@ export default {
 
       rig.readout.text(`${formatVertical(value)} m`);
       layerReadout.text(layer.label ?? "");
+      placeDescription(layer, ym);
     }
 
     svg.on("pointerenter pointermove", pointermoved).on("pointerleave", rig.hide);

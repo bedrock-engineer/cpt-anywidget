@@ -4072,7 +4072,7 @@ function plotClip(svg, prefix, { x: x2, y: y2, width, height }) {
   svg.append("clipPath").attr("id", id2).append("rect").attr("x", x2).attr("y", y2).attr("width", width).attr("height", height);
   return id2;
 }
-const haloText = (text) => text.attr("stroke", "white").attr("stroke-width", 4).attr("paint-order", "stroke");
+const haloText = (text, strokeWidth = 4) => text.attr("stroke", "white").attr("stroke-width", strokeWidth).attr("paint-order", "stroke");
 function focusRig(svg, {
   marginLeft,
   ruleX2,
@@ -4157,7 +4157,7 @@ function profileOverlayLayer(svg, overlays, {
 }) {
   const overlayG = svg.append("g").attr("clip-path", `url(#${clipId})`).selectAll("g").data(overlays).join("g");
   const overlayPath = overlayG.append("path").attr("fill", "none").attr("stroke", (o) => o.color ?? "currentColor").attr("stroke-dasharray", (o) => o.dash ?? null).attr("stroke-width", (o) => o.width ?? 1.5);
-  const overlayLabel = overlayG.append("text").attr("font-size", 11).attr("fill", (o) => o.color ?? "currentColor").attr("stroke", "white").attr("stroke-width", 2).attr("paint-order", "stroke").text((o) => o.label ?? "");
+  const overlayLabel = overlayG.append("text").attr("font-size", 11).attr("fill", (o) => o.color ?? "currentColor").attr("stroke", "white").attr("stroke-width", 1.75).attr("paint-order", "stroke").text((o) => o.label ?? "");
   return (y1, { centers, distX }, t) => {
     const firstVertex = (o) => {
       if (o.levels) {

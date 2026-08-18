@@ -41,7 +41,7 @@ export function profileOverlayLayer(
     .attr("font-size", 11)
     .attr("fill", (o) => o.color ?? "currentColor")
     .attr("stroke", "white")
-    .attr("stroke-width", 2)
+    .attr("stroke-width", 1.75)
     .attr("paint-order", "stroke")
     .text((o) => o.label ?? "");
 

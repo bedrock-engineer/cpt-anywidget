@@ -8,9 +8,11 @@ import type { AnySelection } from "./types";
 // docs/adr/0001-crosshair-variants-stay-separate.md. The rig only
 // builds, shows at a pixel, and hides.
 
-/** white halo keeping readouts legible over curves and soil fills */
-export const haloText = (text: AnySelection<SVGTextElement>) =>
-  text.attr("stroke", "white").attr("stroke-width", 4).attr("paint-order", "stroke");
+/** white halo keeping readouts legible over curves and soil fills; the
+    default weight suits crosshair readouts — in-plot labels pass a
+    lighter strokeWidth via selection.call(haloText, w) */
+export const haloText = (text: AnySelection<SVGTextElement>, strokeWidth = 4) =>
+  text.attr("stroke", "white").attr("stroke-width", strokeWidth).attr("paint-order", "stroke");
 
 export interface FocusRig {
   /** the group; callers append their own extra readouts to it */

@@ -3,7 +3,7 @@ import type { Selection } from "d3-selection";
 
 // the JSON shapes shared between the Python traits and the front end —
 // this file is the TS mirror of the trait docstrings in cpt_viewer.py /
-// bhrgt_viewer.py; change them together
+// borehole_viewer.py; change them together
 
 /** one column of samples; None from Python arrives as null */
 export type Samples = (number | null)[];
@@ -31,6 +31,8 @@ export interface Layer {
   /** references a SoilClass by name; drives fill + label when set */
   class?: string;
   bands?: Band[];
+  /** free-text detail (e.g. a field description) shown on hover */
+  description?: string;
 }
 
 /** read-only interpretation column stacked next to the plot */
@@ -127,9 +129,4 @@ export type Placer = (y1: VerticalScale) => void;
 
 /** any d3 selection where we don't care about the datum chain — the
     d3 generics are not worth threading through every seam */
-export type AnySelection<E extends Element = Element> = Selection<
-  E,
-  any,
-  any,
-  any
->;
+export type AnySelection<E extends Element = Element> = Selection<E, any, any, any>;

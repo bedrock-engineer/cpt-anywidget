@@ -166,25 +166,23 @@ export default {
         label: d.label ?? "",
         layers: d.layers ?? [],
       })),
-      ...(editedLayers.length
-        ? [
-            {
-              label: "Edited Interpr.",
-              layers: editedLayers,
-              editable: true,
-              // the empty separator slot sets the editable column apart
-              // from the read-only interpretation columns
-              gapBefore: true,
-            },
-          ]
-        : []),
+      // always present, even with no layers yet: the empty column offers
+      // the click-to-start gesture, so interpreting needs no seed
+      {
+        label: "Edited Interpr.",
+        layers: editedLayers,
+        editable: true,
+        // the empty separator slot sets the editable column apart
+        // from the read-only interpretation columns
+        gapBefore: true,
+      },
     ];
 
     const { totalWidth, x0 } = layoutColumns(columns, width, column);
 
     // the edit column carries the structure lane on its outer edge,
     // past the slot layout's extent
-    const svgRight = totalWidth + (editedLayers.length ? laneExtent : 0);
+    const svgRight = totalWidth + laneExtent;
 
     const svg = d3
       .select(el)
@@ -285,39 +283,40 @@ export default {
       (y1: d3.ScaleLinear<number, number>) => placeLayerColumn(columnLayers, y1),
     ];
 
-    if (editedLayers.length) {
-      // the editable column already exists in the columns join — pick its
-      // nodes out by datum. Handles go in a sibling group of the layers so
-      // re-joined layer rects can never paint over the handles and steal
-      // their pointer events
-      const layersG = columnLayers.filter((d) => Boolean(d.editable));
-      const handlesG = columnBody.filter((d) => Boolean(d.editable)).append("g");
+    // the editable column already exists in the columns join — pick its
+    // nodes out by datum. Handles go in a sibling group of the layers so
+    // re-joined layer rects can never paint over the handles and steal
+    // their pointer events
+    const layersG = columnLayers.filter((d) => Boolean(d.editable));
+    const handlesG = columnBody.filter((d) => Boolean(d.editable)).append("g");
 
-      // the structure lane sits outside the column clip — its strip and
-      // previews live in the lane's own x band and span the plot height
-      const laneG = gColumn.filter((d) => Boolean(d.editable)).append("g");
+    // the structure lane sits outside the column clip — its strip and
+    // previews live in the lane's own x band and span the plot height
+    const laneG = gColumn.filter((d) => Boolean(d.editable)).append("g");
 
-      const placeHandles = editableColumn({
-        model,
-        el,
-        signal,
-        layersG,
-        handlesG,
-        laneG,
-        editedLayers,
-        soilClasses,
-        classLabel,
-        columnWidth: column.width,
-        plotTop: marginTop,
-        plotBottom: height - marginBottom,
-        layerColumn,
-        // closes over the zoom drive declared below; pointer events
-        // can't fire before render completes, so the read is safe
-        currentY: () => current(),
-      });
+    const placeHandles = editableColumn({
+      model,
+      el,
+      signal,
+      layersG,
+      handlesG,
+      laneG,
+      editedLayers,
+      soilClasses,
+      classLabel,
+      columnWidth: column.width,
+      plotTop: marginTop,
+      plotBottom: height - marginBottom,
+      // a first layer created in the empty column spans the sounding's
+      // data extent (first to last sample, in the vertical coordinate)
+      verticalExtent: [vertical[0] ?? 0, vertical[vertical.length - 1] ?? 0],
+      layerColumn,
+      // closes over the zoom drive declared below; pointer events
+      // can't fire before render completes, so the read is safe
+      currentY: () => current(),
+    });
 
-      columnPlacers.push(placeHandles);
-    }
+    columnPlacers.push(placeHandles);
 
     const placeColumns = (y1: d3.ScaleLinear<number, number>) => {
       columnPlacers.forEach((place) => place(y1));

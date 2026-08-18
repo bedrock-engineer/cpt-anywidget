@@ -3593,7 +3593,7 @@ function zoom() {
   };
   return zoom2;
 }
-const haloText = (text) => text.attr("stroke", "white").attr("stroke-width", 4).attr("paint-order", "stroke");
+const haloText = (text, strokeWidth = 4) => text.attr("stroke", "white").attr("stroke-width", strokeWidth).attr("paint-order", "stroke");
 function focusRig(svg, {
   marginLeft,
   ruleX2,
@@ -3659,6 +3659,24 @@ function resolveVertical(raw, fallbackKey) {
     )
   };
 }
+function wrapLines(text, maxChars) {
+  const words = text.split(/\s+/).filter(Boolean);
+  const lines = [];
+  let line = "";
+  for (const word of words) {
+    const candidate = line ? `${line} ${word}` : word;
+    if (candidate.length > maxChars && line) {
+      lines.push(line);
+      line = word;
+    } else {
+      line = candidate;
+    }
+  }
+  if (line) {
+    lines.push(line);
+  }
+  return lines;
+}
 function verticalZoom(svg, {
   y,
   width,
@@ -3719,7 +3737,7 @@ function verticalZoom(svg, {
   );
   return () => zy;
 }
-const bhrgtViewer = {
+const boreholeViewer = {
   render({ model, el }) {
     const layers = model.get("layers") ?? [];
     const vert = resolveVertical(model.get("verticalKey"), "depth");
@@ -3744,7 +3762,7 @@ const bhrgtViewer = {
       "style",
       "max-width: 100%; height: auto; user-select: none; -webkit-user-select: none;"
     );
-    const clipId = plotClip(svg, "bhrgt-clip", {
+    const clipId = plotClip(svg, "borehole-clip", {
       x: marginLeft,
       y: marginTop,
       width: width - marginLeft - marginRight,
@@ -3752,22 +3770,23 @@ const bhrgtViewer = {
     });
     const usedHatches = [
       ...new Set(layers.flatMap((l) => (l.bands ?? []).map((b) => b.hatch)))
-    ].filter(Boolean);
+    ].filter((h) => !!h);
     const hatchId = hatchDefs(svg, usedHatches);
     const gy = svg.append("g");
     verticalAxisTitle(svg, vert.label);
     const bands = layers.flatMap(
       (layer) => (layer.bands ?? []).map((b) => ({ ...b, layer }))
     );
+    const hasHatch = (b) => !!b.hatch;
     const bandX = (rect) => rect.attr("x", (b) => x(b.x1)).attr("width", (b) => x(b.x2) - x(b.x1));
     const gLayers = svg.append("g").attr("clip-path", `url(#${clipId})`);
-    const bandRect = gLayers.selectAll("rect").data(bands).join("rect").call(bandX).attr("fill", (b) => b.color).attr("stroke", "white").attr("stroke-width", 0.5);
-    const hatchRect = gLayers.selectAll(null).data(bands.filter((b) => b.hatch)).join("rect").call(bandX).attr("fill", (b) => `url(#${hatchId.get(b.hatch)})`);
-    const soilLabel = gLayers.selectAll("text").data(layers).join("text").attr("x", x(0.5)).attr("dy", "0.32em").attr("text-anchor", "middle").attr("font-size", 10).attr("fill", "#333").attr("stroke", "white").attr("stroke-width", 1.5).attr("paint-order", "stroke").text((l) => l.label ?? "");
+    const bandRect = gLayers.append("g").selectAll("rect").data(bands).join("rect").call(bandX).attr("fill", (b) => b.color).attr("stroke", "white").attr("stroke-width", 0.5);
+    const hatchRect = gLayers.append("g").selectAll("rect").data(bands.filter(hasHatch)).join("rect").call(bandX).attr("fill", (b) => `url(#${hatchId.get(b.hatch)})`);
+    const soilLabel = gLayers.append("g").selectAll("text").data(layers).join("text").attr("x", x(0.5)).attr("dy", "0.32em").attr("text-anchor", "middle").attr("font-size", 10).attr("fill", "#333").call(haloText, 1.5).text((l) => l.label ?? "");
+    const placeBandRects = (rect, y1) => rect.attr("y", (b) => Math.min(y1(b.layer.top), y1(b.layer.bottom))).attr("height", (b) => Math.abs(y1(b.layer.bottom) - y1(b.layer.top)));
     const placeLayers = (y1) => {
-      for (const rect of [bandRect, hatchRect]) {
-        rect.attr("y", (b) => Math.min(y1(b.layer.top), y1(b.layer.bottom))).attr("height", (b) => Math.abs(y1(b.layer.bottom) - y1(b.layer.top)));
-      }
+      placeBandRects(bandRect, y1);
+      placeBandRects(hatchRect, y1);
       soilLabel.attr("y", (l) => (y1(l.top) + y1(l.bottom)) / 2).attr("display", (l) => Math.abs(y1(l.bottom) - y1(l.top)) >= 14 ? null : "none");
     };
     const placeAnnotations = annotationLayer(svg, annotations, {
@@ -3779,6 +3798,21 @@ const bhrgtViewer = {
     const formatVertical = format(vert.format);
     const rig = focusRig(svg, { marginLeft, ruleX2: width - marginRight });
     const layerReadout = rig.focus.append("text").attr("x", width - marginRight - 6).attr("y", -6).attr("text-anchor", "end").attr("font-size", 12).attr("fill", "#333").call(haloText);
+    const descFontSize = 10;
+    const descLineHeight = 12;
+    const descMaxChars = Math.floor((width - marginLeft - marginRight) / (descFontSize * 0.5));
+    const descReadout = rig.focus.append("text").attr("font-size", descFontSize).attr("fill", "#555").call(haloText);
+    const descLines = new Map(
+      layers.map((l) => [l, l.description ? wrapLines(l.description, descMaxChars) : []])
+    );
+    const placeDescription = (layer, ym) => {
+      const lines = descLines.get(layer) ?? [];
+      const below = ym < (marginTop + height - marginBottom) / 2;
+      descReadout.selectAll("tspan").data(lines).join("tspan").attr("x", marginLeft + 4).attr(
+        "y",
+        (_, i) => below ? 14 + i * descLineHeight : -12 - (lines.length - 1 - i) * descLineHeight
+      ).text((line) => line);
+    };
     const bisectTop = layers.length < 2 || layers[0].top <= layers[1].top ? bisector((l) => l.top).right : bisector((l, v) => v - l.top).right;
     const layerAt = (value) => {
       const l = layers[bisectTop(layers, value) - 1];
@@ -3795,6 +3829,7 @@ const bhrgtViewer = {
       rig.show(ym);
       rig.readout.text(`${formatVertical(value)} m`);
       layerReadout.text(layer.label ?? "");
+      placeDescription(layer, ym);
     }
     svg.on("pointerenter pointermove", pointermoved).on("pointerleave", rig.hide);
     const current = verticalZoom(svg, {
@@ -3810,5 +3845,5 @@ const bhrgtViewer = {
   }
 };
 export {
-  bhrgtViewer as default
+  boreholeViewer as default
 };

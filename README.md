@@ -12,9 +12,10 @@ viewer shares a zoomable vertical axis in depth below surface or elevation
   inclination, …) against the vertical axis, plus optional layer columns:
   a nearby borehole log, read-only interpretation columns (e.g. Robertson,
   Lengkeek), and an editable layer column synced back to Python.
-- **`BHRGTViewer`** — a single borehole log with proportional
-  soil-composition bands and hatch patterns; `layers_from_bhrgt` converts a
-  `brodata` BHR-GT object into its `layers` trait.
+- **`BoreholeViewer`** — a single borehole log with proportional
+  soil-composition bands and hatch patterns; `layers_from_bhrgt` (brodata
+  BHR-GT) and `layers_from_bore` (pygef GEF/BRO XML) convert parsed
+  boreholes into its `layers` trait.
 - **`ProfileViewer`** — multiple CPTs side by side along a chainage axis
   (a cross-section); `chainage` computes along-profile distances from map
   coordinates.
@@ -28,7 +29,7 @@ uv add "cpt-anywidget @ git+https://github.com/bedrock-engineer/cpt-anywidget"
 ```
 
 The `bro` extra (`cpt-anywidget[bro]`) pulls in `brodata`, needed only for
-`layers_from_bhrgt`.
+`layers_from_bhrgt` and `layers_from_bore` (the lithology color table).
 
 ## Usage
 

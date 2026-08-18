@@ -1,5 +1,5 @@
 import * as d3 from "./d3";
-import { assignClass, dragBoundary, merge, splitAt } from "./layer-edits";
+import { assignClass, dragBoundary, merge, seedLayer, splitAt } from "./layer-edits";
 import { labelMargin, placeLayerColumn } from "./layers";
 import { pieAngles, wedgeAt } from "./pie-menu";
 import type { LayerColumn } from "./layers";
@@ -30,6 +30,9 @@ interface EditableColumn {
   /** pixel extent of the plot area, for the lane's static strip */
   plotTop: number;
   plotBottom: number;
+  /** the sounding's full vertical span, in vertical-coordinate units —
+      the extent of the first layer created from the empty state */
+  verticalExtent: [number, number];
   layerColumn: LayerColumn;
   currentY: () => VerticalScale;
 }
@@ -61,6 +64,7 @@ export function editableColumn({
   columnWidth,
   plotTop,
   plotBottom,
+  verticalExtent,
   layerColumn,
   currentY,
 }: EditableColumn): Placer {
@@ -259,6 +263,41 @@ export function editableColumn({
       syncEditedLayers();
       previewLane(py); // the stack under the pointer just changed
     });
+
+  // the empty state: before any layer exists (no seed chosen), the
+  // column body offers one gesture — click to create a first classless
+  // layer spanning the sounding, the blank slate the lane and pie then
+  // carve up. joinEditColumn toggles it, so seeding from Python or an
+  // undo-to-empty shows it again
+  const emptyHint = laneG.append("g").attr("cursor", "pointer");
+
+  emptyHint
+    .append("rect")
+    .attr("x", labelMargin)
+    .attr("y", plotTop)
+    .attr("width", columnWidth - labelMargin)
+    .attr("height", plotBottom - plotTop)
+    .attr("fill", "#fafafa")
+    .attr("stroke", "#bbb")
+    .attr("stroke-dasharray", "4,3");
+
+  emptyHint
+    .append("text")
+    .attr("x", labelMargin + (columnWidth - labelMargin) / 2)
+    .attr("y", (plotTop + plotBottom) / 2)
+    .attr("text-anchor", "middle")
+    .attr("dy", "0.32em")
+    .attr("font-size", 16)
+    .attr("fill", "#888")
+    .text("+");
+
+  emptyHint.append("title").text("Start a first layer spanning the full sounding");
+
+  emptyHint.on("click", () => {
+    layers = seedLayer(verticalExtent[0], verticalExtent[1]);
+    updateEditColumn();
+    syncEditedLayers();
+  });
 
   // class-picker pie: an html overlay div holding its own small svg,
   // positioned in el's css-pixel space — the main svg is scaled by
@@ -564,6 +603,8 @@ export function editableColumn({
     layersG.call(layerColumn, layers).call(classifyLayers);
 
     handlesG.call(boundaryHandles);
+
+    emptyHint.attr("display", layers.length ? "none" : null);
   };
 
   // full rebuild after a structural edit (split/merge): re-join layers

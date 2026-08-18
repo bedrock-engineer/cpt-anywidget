@@ -4658,7 +4658,7 @@ function overlayLayer(svg, overlays, { seriesByKey, clipId }) {
   const paths = svg.append("g").attr("clip-path", `url(#${clipId})`).selectAll("path").data(overlays).join("path").attr("fill", "none").attr("stroke", (o) => o.color ?? "currentColor").attr("stroke-width", (o) => o.width ?? 1.5).attr("stroke-dasharray", (o) => o.dash ?? "6 4");
   return (y1) => paths.attr("d", (o) => overlayPath(o, y1));
 }
-const haloText = (text) => text.attr("stroke", "white").attr("stroke-width", 4).attr("paint-order", "stroke");
+const haloText = (text, strokeWidth = 4) => text.attr("stroke", "white").attr("stroke-width", strokeWidth).attr("paint-order", "stroke");
 function focusRig(svg, {
   marginLeft,
   ruleX2,
@@ -4788,6 +4788,9 @@ const clampWindow = (a, b) => [
   Math.min(a, b) + minThickness,
   Math.max(a, b) - minThickness
 ];
+function seedLayer(top2, bottom2) {
+  return [{ top: top2, bottom: bottom2 }];
+}
 function dragBoundary(layers, i, value) {
   const above = layers[i];
   const below = layers[i + 1];
@@ -4868,6 +4871,7 @@ function editableColumn({
   columnWidth,
   plotTop,
   plotBottom,
+  verticalExtent,
   layerColumn,
   currentY
 }) {
@@ -4954,6 +4958,15 @@ function editableColumn({
     updateEditColumn();
     syncEditedLayers();
     previewLane(py);
+  });
+  const emptyHint = laneG.append("g").attr("cursor", "pointer");
+  emptyHint.append("rect").attr("x", labelMargin).attr("y", plotTop).attr("width", columnWidth - labelMargin).attr("height", plotBottom - plotTop).attr("fill", "#fafafa").attr("stroke", "#bbb").attr("stroke-dasharray", "4,3");
+  emptyHint.append("text").attr("x", labelMargin + (columnWidth - labelMargin) / 2).attr("y", (plotTop + plotBottom) / 2).attr("text-anchor", "middle").attr("dy", "0.32em").attr("font-size", 16).attr("fill", "#888").text("+");
+  emptyHint.append("title").text("Start a first layer spanning the full sounding");
+  emptyHint.on("click", () => {
+    layers = seedLayer(verticalExtent[0], verticalExtent[1]);
+    updateEditColumn();
+    syncEditedLayers();
   });
   select(el).style("position", "relative");
   const pieOuter = 75;
@@ -5111,6 +5124,7 @@ function editableColumn({
   const joinEditColumn = () => {
     layersG.call(layerColumn, layers).call(classifyLayers);
     handlesG.call(boundaryHandles);
+    emptyHint.attr("display", layers.length ? "none" : null);
   };
   const updateEditColumn = () => {
     joinEditColumn();
@@ -5192,19 +5206,19 @@ const cptViewer = {
         label: d.label ?? "",
         layers: d.layers ?? []
       })),
-      ...editedLayers.length ? [
-        {
-          label: "Edited Interpr.",
-          layers: editedLayers,
-          editable: true,
-          // the empty separator slot sets the editable column apart
-          // from the read-only interpretation columns
-          gapBefore: true
-        }
-      ] : []
+      // always present, even with no layers yet: the empty column offers
+      // the click-to-start gesture, so interpreting needs no seed
+      {
+        label: "Edited Interpr.",
+        layers: editedLayers,
+        editable: true,
+        // the empty separator slot sets the editable column apart
+        // from the read-only interpretation columns
+        gapBefore: true
+      }
     ];
     const { totalWidth, x0 } = layoutColumns(columns, width, column);
-    const svgRight = totalWidth + (editedLayers.length ? laneExtent : 0);
+    const svgRight = totalWidth + laneExtent;
     const svg = select(el).append("svg").attr("viewBox", [x0, 0, svgRight - x0, height].join(",")).attr("width", svgRight - x0).attr("height", height).style("max-width", "100%").style("height", "auto").style("user-select", "none").style("-webkit-user-select", "none");
     const { series, seriesByKey, y: y2, clipId, marginTop, marginBottom, place } = cptChart(svg, {
       cptData,
@@ -5254,30 +5268,31 @@ const cptViewer = {
     const columnPlacers = [
       (y1) => placeLayerColumn(columnLayers, y1)
     ];
-    if (editedLayers.length) {
-      const layersG = columnLayers.filter((d) => Boolean(d.editable));
-      const handlesG = columnBody.filter((d) => Boolean(d.editable)).append("g");
-      const laneG = gColumn.filter((d) => Boolean(d.editable)).append("g");
-      const placeHandles = editableColumn({
-        model,
-        el,
-        signal,
-        layersG,
-        handlesG,
-        laneG,
-        editedLayers,
-        soilClasses,
-        classLabel,
-        columnWidth: column.width,
-        plotTop: marginTop,
-        plotBottom: height - marginBottom,
-        layerColumn,
-        // closes over the zoom drive declared below; pointer events
-        // can't fire before render completes, so the read is safe
-        currentY: () => current()
-      });
-      columnPlacers.push(placeHandles);
-    }
+    const layersG = columnLayers.filter((d) => Boolean(d.editable));
+    const handlesG = columnBody.filter((d) => Boolean(d.editable)).append("g");
+    const laneG = gColumn.filter((d) => Boolean(d.editable)).append("g");
+    const placeHandles = editableColumn({
+      model,
+      el,
+      signal,
+      layersG,
+      handlesG,
+      laneG,
+      editedLayers,
+      soilClasses,
+      classLabel,
+      columnWidth: column.width,
+      plotTop: marginTop,
+      plotBottom: height - marginBottom,
+      // a first layer created in the empty column spans the sounding's
+      // data extent (first to last sample, in the vertical coordinate)
+      verticalExtent: [vertical[0] ?? 0, vertical[vertical.length - 1] ?? 0],
+      layerColumn,
+      // closes over the zoom drive declared below; pointer events
+      // can't fire before render completes, so the read is safe
+      currentY: () => current()
+    });
+    columnPlacers.push(placeHandles);
     const placeColumns = (y1) => {
       columnPlacers.forEach((place2) => place2(y1));
     };

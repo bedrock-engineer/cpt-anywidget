@@ -92,7 +92,7 @@ class CPTViewer(anywidget.AnyWidget):
     # [{"x1", "x2", "color", "hatch"?}, ...]}, ...]} — "top"/"bottom" in the
     # current vertical coordinate (the borehole and CPT surfaces sit at
     # different elevations, so convert through NAP notebook-side; see
-    # bhrgt_viewer.layers_from_bhrgt for the band shape); {} hides the column
+    # borehole_viewer.layers_from_bhrgt for the band shape); {} hides the column
     borehole = traitlets.Dict().tag(sync=True)
 
     # manually editable layer column, stacked after the interpretation

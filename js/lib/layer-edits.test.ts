@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { assignClass, dragBoundary, merge, minThickness, splitAt } from "./layer-edits";
+import { assignClass, dragBoundary, merge, minThickness, seedLayer, splitAt } from "./layer-edits";
 import type { Layer } from "./types";
 
 // one fixture per vertical orientation: depth is positive down
@@ -15,6 +15,16 @@ const napStack = (): Layer[] => [
   { top: 1, bottom: -2, class: "clay" },
   { top: -2, bottom: -6, class: "peat" },
 ];
+
+describe("seedLayer", () => {
+  it("creates a single classless layer spanning the extent", () => {
+    expect(seedLayer(0, 9)).toEqual([{ top: 0, bottom: 9 }]);
+  });
+
+  it("keeps the NAP orientation (top > bottom)", () => {
+    expect(seedLayer(3, -6)).toEqual([{ top: 3, bottom: -6 }]);
+  });
+});
 
 describe("dragBoundary", () => {
   it("moves the shared boundary, leaving the input untouched", () => {

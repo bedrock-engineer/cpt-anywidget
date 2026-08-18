@@ -1,6 +1,6 @@
 import type { Layer } from "./types";
 
-// the four legal transformations of the edited layer stack: one flat
+// the legal transformations of the edited layer stack: one flat
 // list whose adjacent entries share a boundary (above.bottom ===
 // below.top), in either vertical orientation (depth: top < bottom,
 // nap: top > bottom). Every operation is pure — layers in, fresh
@@ -17,6 +17,12 @@ const clampWindow = (a: number, b: number): [number, number] => [
   Math.min(a, b) + minThickness,
   Math.max(a, b) - minThickness,
 ];
+
+/** the first layer of an empty stack: one classless layer spanning
+    [top, bottom], the blank slate split/classify then carve up */
+export function seedLayer(top: number, bottom: number): Layer[] {
+  return [{ top, bottom }];
+}
 
 /** move the boundary shared by layers[i] and layers[i + 1] to value,
     clamped so neither neighbour drops below minThickness */
