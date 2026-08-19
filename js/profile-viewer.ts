@@ -73,8 +73,6 @@ export default {
     const annotations = model.get("annotations") ?? [];
     const overlays = model.get("overlays") ?? [];
 
-    let equal = model.get("equalSpacing") ?? false;
-
     const stripWidth = model.get("stripWidth") || 90;
     const width = model.get("width") || 700;
     const height = model.get("height") || 500;
@@ -145,7 +143,9 @@ export default {
     );
 
     // the strip anchor geometry: tie-run dodging, svg growth, both
-    // spacing modes' center arrays — see lib/strip-layout
+    // spacing modes' geometries and the active mode — the layout owns
+    // the spacing state, consumers read centers()/width()/distX() live
+    // and never keep copies; see lib/strip-layout
     const n = cpts.length;
     const distances = cpts.map((c) => c.distance);
 
@@ -156,23 +156,19 @@ export default {
       width,
       marginLeft,
       marginRight,
-    });
-    const { svgWidth, equalSvgWidth } = layout;
+    }).equalSpacing(model.get("equalSpacing") ?? false);
 
-    let centers = equal ? layout.equalCenters : layout.trueCenters;
-    let distX = layout.distToX(centers);
-    // the svg is narrower when equal-spaced: equal spacing packs into
-    // the requested width, so keeping the true-scale width would leave
-    // a long empty gridline tail to scroll through
-    let curWidth = equal ? equalSvgWidth : svgWidth;
+    // the plot's right edge in the active spacing mode; a thunk so the
+    // grid, the right axis, the zoom band and the hit tests read it live
+    const plotRight = () => layout.width() - marginRight;
 
     // the zoom drive; applied at the end of setup, but currentScale is
     // valid already — the pointer handlers below take it directly. The
-    // xExtent thunk is re-read per gesture, so the brush tracks curWidth
-    // across the spacing toggle
+    // xExtent thunk is re-read per gesture, so the brush tracks the
+    // width across the spacing toggle
     const vz = verticalZoom()
       .scale(y)
-      .xExtent(() => [marginLeft, curWidth - marginRight]);
+      .xExtent(() => [marginLeft, plotRight()]);
 
     // toolbar above the svg; the toggle round-trips through the trait so
     // Python can flip it too
@@ -188,7 +184,7 @@ export default {
       .append("input")
       .attr("type", "checkbox")
       .style("vertical-align", "-2px")
-      .property("checked", equal)
+      .property("checked", layout.equalSpacing())
       .on("change", (event: Event) => {
         model.set(
           "equalSpacing",
@@ -260,8 +256,8 @@ export default {
 
     const svg = scroller
       .append("svg")
-      .attr("viewBox", [0, 0, curWidth, height].join(","))
-      .attr("width", curWidth)
+      .attr("viewBox", [0, 0, layout.width(), height].join(","))
+      .attr("width", layout.width())
       .attr("height", height)
       .style("display", "block")
       // user-select suppresses text selection during drags/brushes;
@@ -271,7 +267,7 @@ export default {
     const clipId = plotClip(svg, "profile-clip", {
       x: marginLeft,
       y: marginTop,
-      width: curWidth - marginLeft - marginRight,
+      width: layout.width() - marginLeft - marginRight,
       height: yBottom - marginTop,
     });
 
@@ -300,16 +296,15 @@ export default {
 
     const yAxis = yAxisFor(marginLeft, height);
     // right-edge axis (scrolls with the chart, no pinned copy): its x
-    // tracks the svg width, so the factory is rebuilt whenever the
-    // spacing mode changes it (like yGrid below)
-    let yAxisR = yAxisRightFor(curWidth - marginRight, height);
+    // is a thunk reading the live width, so the spacing toggle needs
+    // no rebuild (likewise yGrid below)
+    const yAxisR = yAxisRightFor(plotRight, height);
 
     // one background grid across the whole profile — the strips share
-    // it. Rebuilt on the spacing toggle since its right edge tracks the
-    // svg width
-    let yGrid = yGridFor({
+    // it; its right edge reads the live width
+    const yGrid = yGridFor({
       x1: marginLeft,
-      x2: curWidth - marginRight,
+      x2: plotRight,
       height,
     });
 
@@ -360,10 +355,11 @@ export default {
     const gChain = svg.append("g").attr("transform", `translate(0,${chainY})`);
 
     // dual-mode: honest meter axis in true scale, per-dijkpaal labels
-    // when equal-spaced; see lib/chainage-axis
+    // when equal-spaced; reads the layout's live spacing state — see
+    // lib/chainage-axis
     const chainageAxis = chainageAxisFor(layout);
 
-    gChain.call(chainageAxis, { equal, centers });
+    gChain.call(chainageAxis);
 
     if (n >= 2) {
       svg
@@ -471,7 +467,7 @@ export default {
 
     // profile-space overlays (groundwater level, surface line, ...) span
     // the strips in (chainage, vertical) coordinates; see
-    // lib/profile-overlays. The thin adapter closes over the live
+    // lib/profile-overlays. The thin adapter reads the layout's live
     // spacing state so call sites match the other placers
     const placeProfileOverlays = profileOverlayLayer(svg, overlays, {
       names: cpts.map((c) => c.name),
@@ -482,13 +478,18 @@ export default {
     const placeOverlays = (
       y1: VerticalScale,
       t?: d3.Transition<any, any, any, any>,
-    ) => placeProfileOverlays(y1, { centers, distX }, t);
+    ) =>
+      placeProfileOverlays(
+        y1,
+        { centers: layout.centers(), distX: layout.distX() },
+        t,
+      );
 
     const placeAnnotations = annotationLayer(svg, annotations, {
       clipId,
       marginLeft,
       marginRight,
-      width: () => curWidth,
+      width: () => layout.width(),
     });
 
     const applySelection = () => {
@@ -509,22 +510,15 @@ export default {
       signal,
     });
 
-    // re-anchor the strips for the current spacing mode; animated when
-    // the toggle flips so the strips visibly slide to their new anchors.
-    // The svg width rides along: equal spacing packs into the requested
-    // width, true scale gets the room the chainages need. Not a Placer —
+    // re-anchor the strips for the layout's current spacing mode;
+    // animated when the toggle flips so the strips visibly slide to
+    // their new anchors. Only the irreducibly-DOM toggle work lives
+    // here — the geometry itself comes from the layout. Not a Placer —
     // spacing, not zoom, drives it — so the scale comes in explicitly
     const placeStrips = (animate: boolean, y1: VerticalScale) => {
-      centers = equal ? layout.equalCenters : layout.trueCenters;
-      distX = layout.distToX(centers);
-      curWidth = equal ? equalSvgWidth : svgWidth;
+      const centers = layout.centers();
+      const curWidth = layout.width();
 
-      yGrid = yGridFor({
-        x1: marginLeft,
-        x2: curWidth - marginRight,
-        height,
-      });
-      yAxisR = yAxisRightFor(curWidth - marginRight, height);
       svg
         .select(`#${clipId} rect`)
         .attr("width", curWidth - marginLeft - marginRight);
@@ -547,7 +541,7 @@ export default {
           .transition(t as any)
           .attr("x2", curWidth - marginRight);
         gyR.transition(t).attr("transform", `translate(${curWidth - marginRight},0)`);
-        gChain.transition(t).call(chainageAxis as any, { equal, centers });
+        gChain.transition(t).call(chainageAxis);
         placeOverlays(y1, t);
       } else {
         svg
@@ -556,7 +550,7 @@ export default {
         strip.attr("transform", transform);
         gGrid.call(yGrid, y1);
         gyR.call(yAxisR, y1);
-        gChain.call(chainageAxis, { equal, centers });
+        gChain.call(chainageAxis);
         placeOverlays(y1);
       }
       placeAnnotations(y1);
@@ -572,7 +566,7 @@ export default {
     // viewport edge with the axis copy; same pixel space, no conversion
     const rig = focusRig(svg, {
       marginLeft,
-      ruleX2: curWidth - marginRight,
+      ruleX2: plotRight(),
       readoutHost: pinnedLeft,
     });
 
@@ -583,7 +577,9 @@ export default {
     const formatVertical = d3.format(vert.format);
 
     const stripIndexAt = (px: number) => {
-      const i = centers.findIndex((c) => Math.abs(px - c) <= stripWidth / 2);
+      const i = layout
+        .centers()
+        .findIndex((c) => Math.abs(px - c) <= stripWidth / 2);
       return i === -1 ? null : i;
     };
 
@@ -625,7 +621,8 @@ export default {
         return;
       }
 
-      const flip = centers[si] + stripWidth / 2 + 76 > curWidth;
+      const centers = layout.centers();
+      const flip = centers[si] + stripWidth / 2 + 76 > layout.width();
       const x = centers[si] + (stripWidth / 2 + 6) * (flip ? -1 : 1);
 
       valueGroup
@@ -649,7 +646,7 @@ export default {
         py >= marginTop &&
         py <= yBottom &&
         px >= marginLeft &&
-        px <= curWidth - marginRight;
+        px <= plotRight();
 
       const si = inPlot ? stripIndexAt(px) : null;
       svg.style("cursor", () => (si != null ? "pointer" : null));
@@ -688,9 +685,8 @@ export default {
     });
 
     // apply the zoom drive: it runs the initial placement pass and
-    // re-places on every zoom. The grid wrapper reads the live yGrid
-    // binding — placeStrips rebuilds it when the spacing mode changes
-    // the width
+    // re-places on every zoom; the grid and right axis read the live
+    // width themselves, so no placer cares about the spacing mode
     svg.call(
       vz.placers([
         placeAxes,
@@ -704,8 +700,8 @@ export default {
 
     const onSelected = () => applySelection();
     const onSpacing = () => {
-      equal = model.get("equalSpacing") ?? false;
-      checkbox.property("checked", equal);
+      layout.equalSpacing(model.get("equalSpacing") ?? false);
+      checkbox.property("checked", layout.equalSpacing());
       placeStrips(true, vz.currentScale());
     };
 

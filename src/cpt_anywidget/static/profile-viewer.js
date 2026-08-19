@@ -4045,10 +4045,12 @@ function chainageAxisFor(layout) {
   const { distances, span, groups, anchorX, innerLeft, innerRight } = layout;
   const n = distances.length;
   const formatDistance = format(",.0f");
-  return (gOrT, { equal, centers }) => {
+  return (gOrT) => {
     if (n < 2) {
       return;
     }
+    const equal = layout.equalSpacing();
+    const centers = layout.centers();
     const selection2 = gOrT.selection();
     if (!equal && span > 0) {
       selection2.selectAll("text.chain-label").remove();
@@ -4079,8 +4081,8 @@ function makeVerticalScale(fallback, range, limits) {
   return y2;
 }
 const yAxisFor = (marginLeft, height) => (g, y1) => g.attr("transform", `translate(${marginLeft},0)`).call(axisLeft(y1).ticks(height / 60));
-const yAxisRightFor = (x2, height) => (g, y1) => g.attr("transform", `translate(${x2},0)`).call(axisRight(y1).ticks(height / 60));
-const yGridFor = ({ x1, x2, height }) => (g, y1) => g.attr("stroke", "currentColor").attr("stroke-opacity", 0.1).selectAll("line").data(y1.ticks(height / 60)).join("line").attr("x1", x1).attr("x2", x2).attr("y1", (d) => 0.5 + y1(d)).attr("y2", (d) => 0.5 + y1(d));
+const yAxisRightFor = (x2, height) => (g, y1) => g.attr("transform", `translate(${typeof x2 === "function" ? x2() : x2},0)`).call(axisRight(y1).ticks(height / 60));
+const yGridFor = ({ x1, x2, height }) => (g, y1) => g.attr("stroke", "currentColor").attr("stroke-opacity", 0.1).selectAll("line").data(y1.ticks(height / 60)).join("line").attr("x1", x1).attr("x2", typeof x2 === "function" ? x2() : x2).attr("y1", (d) => 0.5 + y1(d)).attr("y2", (d) => 0.5 + y1(d));
 function verticalAxisTitle(svg, label) {
   svg.append("text").attr("x", 0).attr("y", 14).attr("fill", "currentColor").attr("text-anchor", "start").attr("font-weight", "bold").text(label);
 }
@@ -4301,19 +4303,22 @@ function stripLayout({
     }
     return domain.length >= 2 ? linear().domain(domain).range(range) : () => mid;
   };
-  return {
+  const trueDistX = distToX(trueCenters);
+  const equalDistX = distToX(equalCenters);
+  let equal = false;
+  const layout = {
     distances,
     span,
     groups,
-    svgWidth,
-    equalSvgWidth,
     innerLeft,
     innerRight,
     anchorX,
-    trueCenters,
-    equalCenters,
-    distToX
+    centers: () => equal ? equalCenters : trueCenters,
+    width: () => equal ? equalSvgWidth : svgWidth,
+    distX: () => equal ? equalDistX : trueDistX
   };
+  layout.equalSpacing = ((on) => on === void 0 ? equal : (equal = on, layout));
+  return layout;
 }
 function verticalZoom() {
   let y2;
@@ -4407,7 +4412,6 @@ const profileViewer = {
     const axisLimits = model.get("axisLimits") ?? {};
     const annotations = model.get("annotations") ?? [];
     const overlays = model.get("overlays") ?? [];
-    let equal = model.get("equalSpacing") ?? false;
     const stripWidth = model.get("stripWidth") || 90;
     const width = model.get("width") || 700;
     const height = model.get("height") || 500;
@@ -4461,15 +4465,12 @@ const profileViewer = {
       width,
       marginLeft,
       marginRight
-    });
-    const { svgWidth, equalSvgWidth } = layout;
-    let centers = equal ? layout.equalCenters : layout.trueCenters;
-    let distX = layout.distToX(centers);
-    let curWidth = equal ? equalSvgWidth : svgWidth;
-    const vz = verticalZoom().scale(y2).xExtent(() => [marginLeft, curWidth - marginRight]);
+    }).equalSpacing(model.get("equalSpacing") ?? false);
+    const plotRight = () => layout.width() - marginRight;
+    const vz = verticalZoom().scale(y2).xExtent(() => [marginLeft, plotRight()]);
     const toolbar = select(el).append("div").style("font", "12px system-ui, sans-serif").style("margin", "0 0 4px 2px");
     const toggle = toolbar.append("label").style("cursor", "pointer");
-    const checkbox = toggle.append("input").attr("type", "checkbox").style("vertical-align", "-2px").property("checked", equal).on("change", (event) => {
+    const checkbox = toggle.append("input").attr("type", "checkbox").style("vertical-align", "-2px").property("checked", layout.equalSpacing()).on("change", (event) => {
       model.set(
         "equalSpacing",
         event.currentTarget.checked
@@ -4494,11 +4495,11 @@ const profileViewer = {
     const minimapHost = select(el).append("div");
     const wrap = select(el).append("div").style("position", "relative").style("max-width", "100%");
     const scroller = wrap.append("div").style("max-width", "100%").style("overflow-x", "auto");
-    const svg = scroller.append("svg").attr("viewBox", [0, 0, curWidth, height].join(",")).attr("width", curWidth).attr("height", height).style("display", "block").style("user-select", "none").style("-webkit-user-select", "none");
+    const svg = scroller.append("svg").attr("viewBox", [0, 0, layout.width(), height].join(",")).attr("width", layout.width()).attr("height", height).style("display", "block").style("user-select", "none").style("-webkit-user-select", "none");
     const clipId = plotClip(svg, "profile-clip", {
       x: marginLeft,
       y: marginTop,
-      width: curWidth - marginLeft - marginRight,
+      width: layout.width() - marginLeft - marginRight,
       height: yBottom - marginTop
     });
     const stripClipId = plotClip(svg, "strip-clip", {
@@ -4509,10 +4510,10 @@ const profileViewer = {
     });
     const pinnedLeft = wrap.append("svg").attr("width", marginLeft + 1).attr("height", height).style("position", "absolute").style("left", "0").style("top", "0").style("pointer-events", "none");
     const yAxis = yAxisFor(marginLeft, height);
-    let yAxisR = yAxisRightFor(curWidth - marginRight, height);
-    let yGrid = yGridFor({
+    const yAxisR = yAxisRightFor(plotRight, height);
+    const yGrid = yGridFor({
       x1: marginLeft,
-      x2: curWidth - marginRight,
+      x2: plotRight,
       height
     });
     const gGrid = svg.append("g");
@@ -4532,7 +4533,7 @@ const profileViewer = {
     const chainY = yBottom + axisSlot * (series.length - 1) + 32;
     const gChain = svg.append("g").attr("transform", `translate(0,${chainY})`);
     const chainageAxis = chainageAxisFor(layout);
-    gChain.call(chainageAxis, { equal, centers });
+    gChain.call(chainageAxis);
     if (n >= 2) {
       svg.append("text").attr("x", 0).attr("y", chainY + 9).attr("dy", "0.71em").attr("text-anchor", "start").attr("font-size", 10).attr("font-weight", "bold").attr("fill", "currentColor").text("distance [m]");
     }
@@ -4559,12 +4560,16 @@ const profileViewer = {
       stripWidth,
       clipId
     });
-    const placeOverlays = (y1, t) => placeProfileOverlays(y1, { centers, distX }, t);
+    const placeOverlays = (y1, t) => placeProfileOverlays(
+      y1,
+      { centers: layout.centers(), distX: layout.distX() },
+      t
+    );
     const placeAnnotations = annotationLayer(svg, annotations, {
       clipId,
       marginLeft,
       marginRight,
-      width: () => curWidth
+      width: () => layout.width()
     });
     const applySelection = () => {
       const selected = model.get("selected");
@@ -4577,15 +4582,8 @@ const profileViewer = {
       signal
     });
     const placeStrips = (animate, y1) => {
-      centers = equal ? layout.equalCenters : layout.trueCenters;
-      distX = layout.distToX(centers);
-      curWidth = equal ? equalSvgWidth : svgWidth;
-      yGrid = yGridFor({
-        x1: marginLeft,
-        x2: curWidth - marginRight,
-        height
-      });
-      yAxisR = yAxisRightFor(curWidth - marginRight, height);
+      const centers = layout.centers();
+      const curWidth = layout.width();
       svg.select(`#${clipId} rect`).attr("width", curWidth - marginLeft - marginRight);
       rig.rule.attr("x2", curWidth - marginRight);
       const transform = (_, i) => `translate(${centers[i] - stripWidth / 2},0)`;
@@ -4598,14 +4596,14 @@ const profileViewer = {
         strip.transition(t).attr("transform", transform);
         gGrid.selectAll("line").transition(t).attr("x2", curWidth - marginRight);
         gyR.transition(t).attr("transform", `translate(${curWidth - marginRight},0)`);
-        gChain.transition(t).call(chainageAxis, { equal, centers });
+        gChain.transition(t).call(chainageAxis);
         placeOverlays(y1, t);
       } else {
         svg.attr("width", curWidth).attr("viewBox", [0, 0, curWidth, height].join(","));
         strip.attr("transform", transform);
         gGrid.call(yGrid, y1);
         gyR.call(yAxisR, y1);
-        gChain.call(chainageAxis, { equal, centers });
+        gChain.call(chainageAxis);
         placeOverlays(y1);
       }
       placeAnnotations(y1);
@@ -4613,13 +4611,13 @@ const profileViewer = {
     };
     const rig = focusRig(svg, {
       marginLeft,
-      ruleX2: curWidth - marginRight,
+      ruleX2: plotRight(),
       readoutHost: pinnedLeft
     });
     placeStrips(false, y2);
     const formatVertical = format(vert.format);
     const stripIndexAt = (px) => {
-      const i = centers.findIndex((c) => Math.abs(px - c) <= stripWidth / 2);
+      const i = layout.centers().findIndex((c) => Math.abs(px - c) <= stripWidth / 2);
       return i === -1 ? null : i;
     };
     const formatValue = format(".2f");
@@ -4637,13 +4635,14 @@ const profileViewer = {
         valueGroup.attr("display", "none");
         return;
       }
-      const flip = centers[si] + stripWidth / 2 + 76 > curWidth;
+      const centers = layout.centers();
+      const flip = centers[si] + stripWidth / 2 + 76 > layout.width();
       const x2 = centers[si] + (stripWidth / 2 + 6) * (flip ? -1 : 1);
       valueGroup.attr("display", null).selectAll("text").data(entries).join("text").attr("x", x2).attr("y", (_, i2) => (i2 - (entries.length - 1) / 2) * 14).attr("dy", "0.32em").attr("text-anchor", flip ? "end" : "start").attr("font-size", 12).attr("fill", ({ s }) => s.color).call(haloText).text(({ s, v }) => `${s.label} ${formatValue(v)}`);
     };
     svg.on("pointerenter pointermove", (event) => {
       const [px, py] = pointer(event);
-      const inPlot = py >= marginTop && py <= yBottom && px >= marginLeft && px <= curWidth - marginRight;
+      const inPlot = py >= marginTop && py <= yBottom && px >= marginLeft && px <= plotRight();
       const si = inPlot ? stripIndexAt(px) : null;
       svg.style("cursor", () => si != null ? "pointer" : null);
       if (!inPlot) {
@@ -4683,8 +4682,8 @@ const profileViewer = {
     );
     const onSelected = () => applySelection();
     const onSpacing = () => {
-      equal = model.get("equalSpacing") ?? false;
-      checkbox.property("checked", equal);
+      layout.equalSpacing(model.get("equalSpacing") ?? false);
+      checkbox.property("checked", layout.equalSpacing());
       placeStrips(true, vz.currentScale());
     };
     model.on("change:selected", onSelected);

@@ -375,10 +375,10 @@ function creator(name) {
   var fullname = namespace(name);
   return (fullname.local ? creatorFixed : creatorInherit)(fullname);
 }
-function none() {
+function none$1() {
 }
 function selector(selector2) {
-  return selector2 == null ? none : function() {
+  return selector2 == null ? none$1 : function() {
     return this.querySelector(selector2);
   };
 }
@@ -4429,7 +4429,7 @@ function makeVerticalScale(fallback, range2, limits) {
   return y2;
 }
 const yAxisFor = (marginLeft, height) => (g, y1) => g.attr("transform", `translate(${marginLeft},0)`).call(axisLeft(y1).ticks(height / 60));
-const yGridFor = ({ x1, x2, height }) => (g, y1) => g.attr("stroke", "currentColor").attr("stroke-opacity", 0.1).selectAll("line").data(y1.ticks(height / 60)).join("line").attr("x1", x1).attr("x2", x2).attr("y1", (d) => 0.5 + y1(d)).attr("y2", (d) => 0.5 + y1(d));
+const yGridFor = ({ x1, x2, height }) => (g, y1) => g.attr("stroke", "currentColor").attr("stroke-opacity", 0.1).selectAll("line").data(y1.ticks(height / 60)).join("line").attr("x1", x1).attr("x2", typeof x2 === "function" ? x2() : x2).attr("y1", (d) => 0.5 + y1(d)).attr("y2", (d) => 0.5 + y1(d));
 function verticalAxisTitle(svg, label) {
   svg.append("text").attr("x", 0).attr("y", 14).attr("fill", "currentColor").attr("text-anchor", "start").attr("font-weight", "bold").text(label);
 }
@@ -4833,6 +4833,24 @@ function verticalZoom() {
   vz.currentScale = () => zy ?? y2;
   return vz;
 }
+const snapPx = 6;
+function laneTarget(layers, y1, py, snap = snapPx) {
+  let best = snap;
+  let nearest = null;
+  for (let i = 0; i < layers.length - 1; i++) {
+    const by = y1(layers[i].bottom);
+    if (Math.abs(by - py) < best) {
+      best = Math.abs(by - py);
+      nearest = { kind: "merge", boundary: i, at: by };
+    }
+  }
+  if (nearest) {
+    return nearest;
+  }
+  const value = y1.invert(py);
+  const layer = layers.findIndex((l) => (value - l.top) * (value - l.bottom) <= 0);
+  return layer === -1 ? null : { kind: "split", layer, value, at: py };
+}
 const minThickness = 0.05;
 const clampWindow = (a, b) => [
   Math.min(a, b) + minThickness,
@@ -4905,6 +4923,98 @@ function wedgeAt(arcs, dx, dy, deadZone) {
   );
   return index === -1 ? null : index;
 }
+const keyStep = {
+  ArrowRight: 1,
+  ArrowDown: 1,
+  ArrowLeft: -1,
+  ArrowUp: -1
+};
+const none = { kind: "none" };
+function pieGesture({ arcs, deadZone, slop = 4 }) {
+  let press = null;
+  let open = false;
+  let suppressClick = false;
+  let pieFor = null;
+  let armedIndex = null;
+  const commit = (index) => {
+    const layer = pieFor;
+    pieFor = null;
+    armedIndex = null;
+    return { kind: "commit", index, layer };
+  };
+  return {
+    press(x2, y2, layer) {
+      suppressClick = false;
+      press = { x: x2, y: y2, layer };
+    },
+    move(x2, y2) {
+      if (!press) {
+        return none;
+      }
+      const dx = x2 - press.x;
+      const dy = y2 - press.y;
+      if (open) {
+        armedIndex = wedgeAt(arcs, dx, dy, deadZone);
+        return { kind: "arm", index: armedIndex };
+      }
+      if (Math.hypot(dx, dy) < slop) {
+        return none;
+      }
+      open = true;
+      pieFor = press.layer;
+      armedIndex = wedgeAt(arcs, dx, dy, deadZone);
+      return { kind: "open", x: press.x, y: press.y, layer: pieFor, armed: armedIndex };
+    },
+    release() {
+      if (!press) {
+        return none;
+      }
+      press = null;
+      if (!open) {
+        return none;
+      }
+      open = false;
+      suppressClick = true;
+      if (armedIndex != null) {
+        return commit(armedIndex);
+      }
+      return none;
+    },
+    click(x2, y2, layer) {
+      if (suppressClick) {
+        suppressClick = false;
+        return none;
+      }
+      pieFor = layer;
+      armedIndex = null;
+      return { kind: "open", x: x2, y: y2, layer, armed: null };
+    },
+    key(key, active) {
+      if (!pieFor) {
+        return none;
+      }
+      const step = keyStep[key];
+      if (step != null) {
+        const count = arcs.length;
+        const from = armedIndex ?? (active >= 0 ? active : step > 0 ? -1 : 0);
+        armedIndex = ((from + step) % count + count) % count;
+        return { kind: "arm", index: armedIndex };
+      }
+      if ((key === "Enter" || key === " ") && armedIndex != null) {
+        return commit(armedIndex);
+      }
+      return none;
+    },
+    reset() {
+      press = null;
+      open = false;
+      pieFor = null;
+      armedIndex = null;
+    },
+    pressed: () => press !== null,
+    layer: () => pieFor
+  };
+}
 const laneGap = 2;
 const laneWidth = 14;
 const laneExtent = laneGap + laneWidth;
@@ -4956,34 +5066,15 @@ function editableColumn({
     (enter) => enter.append("rect").attr("class", "handle").attr("x", 0).attr("width", columnWidth).attr("height", 9).attr("fill", "transparent").attr("cursor", "ns-resize").call(dragHandler)
   );
   const laneX = columnWidth + laneGap;
-  const snapPx = 6;
   const laneHit = laneG.append("rect").attr("x", laneX).attr("y", plotTop).attr("width", laneWidth).attr("height", plotBottom - plotTop).attr("fill", "#f6f6f6").attr("stroke", "#ddd").attr("cursor", "pointer");
   const laneLine = laneG.append("line").attr("x1", labelMargin).attr("x2", laneX + laneWidth).attr("stroke-width", 1.5).attr("pointer-events", "none").attr("display", "none");
   const laneGlyph = laneG.append("text").attr("x", laneX + laneWidth / 2).attr("text-anchor", "middle").attr("dy", "0.32em").attr("font-size", 12).attr("font-weight", "bold").attr("pointer-events", "none").attr("display", "none");
-  const laneTarget = (py) => {
-    const y1 = currentY();
-    let best = snapPx;
-    let nearest = null;
-    for (let i = 0; i < layers.length - 1; i++) {
-      const by = y1(layers[i].bottom);
-      if (Math.abs(by - py) < best) {
-        best = Math.abs(by - py);
-        nearest = { kind: "merge", boundary: i, at: by };
-      }
-    }
-    if (nearest) {
-      return nearest;
-    }
-    const value = y1.invert(py);
-    const layer = layers.findIndex((l) => (value - l.top) * (value - l.bottom) <= 0);
-    return layer === -1 ? null : { kind: "split", layer, value, at: py };
-  };
   const hideLanePreview = () => {
     laneLine.attr("display", "none");
     laneGlyph.attr("display", "none");
   };
   const previewLane = (py) => {
-    const target = laneTarget(py);
+    const target = laneTarget(layers, currentY(), py);
     if (!target) {
       hideLanePreview();
       return;
@@ -4996,7 +5087,7 @@ function editableColumn({
   laneHit.on("pointermove", (event) => previewLane(pointer(event)[1])).on("pointerleave", hideLanePreview).on("dblclick", (event) => event.stopPropagation()).on("click", (event) => {
     closePalette();
     const py = pointer(event)[1];
-    const target = laneTarget(py);
+    const target = laneTarget(layers, currentY(), py);
     if (!target) {
       return;
     }
@@ -5035,27 +5126,18 @@ function editableColumn({
   slice.append("text").attr("transform", (d) => `translate(${labelArc.centroid(d)})`).attr("text-anchor", "middle").attr("dy", "0.32em").attr("font-size", 10).attr("fill", (d) => lab(d.data.color).l > 60 ? "#333" : "white").text((d) => d.data.label ?? d.data.name);
   pieSvg.append("circle").attr("r", pieInner - 2).attr("fill", "white");
   const pieCenter = pieSvg.append("text").attr("text-anchor", "middle").attr("dy", "0.32em").attr("font-size", 10).attr("fill", "#333");
-  const dragSlop = 4;
-  let press = null;
-  let gestureOpen = false;
-  let suppressClick = false;
-  let pieFor = null;
-  let armedIndex = null;
+  const gesture = pieGesture({ arcs: pieArcs, deadZone: pieInner });
   const closePalette = () => {
-    press = null;
-    gestureOpen = false;
-    pieFor = null;
-    armedIndex = null;
+    gesture.reset();
     palette.style("display", "none");
   };
-  const openPalette = (x2, y2, layer) => {
-    pieFor = layer;
+  const openPalette = (x2, y2, layer, armed) => {
     palette.style("display", null).style("left", `${x2 - pieSize / 2}px`).style("top", `${y2 - pieSize / 2}px`);
     slice.classed("active", (d) => d.data.name === layer.class);
-    armWedge(null);
+    armWedge(armed);
   };
-  const commitClass = (picked) => {
-    const next = assignClass(layers, layers.indexOf(pieFor), picked.name);
+  const commitClass = (index, layer) => {
+    const next = assignClass(layers, layers.indexOf(layer), soilClasses[index].name);
     if (next !== layers) {
       layers = next;
       updateEditColumn();
@@ -5063,54 +5145,40 @@ function editableColumn({
     }
     closePalette();
   };
-  slice.on("click", (_, d) => commitClass(d.data));
-  const wedgeUnder = (dx, dy) => wedgeAt(pieArcs, dx, dy, pieInner);
   const armWedge = (index) => {
-    armedIndex = index;
     slice.classed("armed", (d) => d.index === index);
+    const current = gesture.layer()?.class;
     pieCenter.text(
-      index == null ? classLabel.get(pieFor.class) ?? "—" : soilClasses[index].label ?? soilClasses[index].name
+      index == null ? current && classLabel.get(current) || "—" : soilClasses[index].label ?? soilClasses[index].name
     );
   };
+  const run = (command) => {
+    if (command.kind === "open") {
+      openPalette(command.x, command.y, command.layer, command.armed);
+    } else if (command.kind === "arm") {
+      armWedge(command.index);
+    } else if (command.kind === "commit") {
+      commitClass(command.index, command.layer);
+    }
+  };
+  slice.on("click", (_, d) => {
+    const layer = gesture.layer();
+    if (layer) {
+      commitClass(d.index, layer);
+    }
+  });
   window.addEventListener(
     "pointermove",
     (event) => {
-      if (!press) {
+      if (!gesture.pressed()) {
         return;
       }
-      const { x: x2, y: y2, layer } = press;
       const [px, py] = pointer(event, el);
-      const dx = px - x2;
-      const dy = py - y2;
-      if (!gestureOpen) {
-        if (Math.hypot(dx, dy) < dragSlop) {
-          return;
-        }
-        gestureOpen = true;
-        openPalette(x2, y2, layer);
-      }
-      armWedge(wedgeUnder(dx, dy));
+      run(gesture.move(px, py));
     },
     { signal }
   );
-  window.addEventListener(
-    "pointerup",
-    () => {
-      if (!press) {
-        return;
-      }
-      press = null;
-      if (!gestureOpen) {
-        return;
-      }
-      gestureOpen = false;
-      suppressClick = true;
-      if (armedIndex != null) {
-        commitClass(soilClasses[armedIndex]);
-      }
-    },
-    { signal }
-  );
+  window.addEventListener("pointerup", () => run(gesture.release()), { signal });
   window.addEventListener(
     "pointerdown",
     (event) => {
@@ -5121,12 +5189,6 @@ function editableColumn({
     { capture: true, signal }
   );
   window.addEventListener("wheel", closePalette, { signal });
-  const keyStep = {
-    ArrowRight: 1,
-    ArrowDown: 1,
-    ArrowLeft: -1,
-    ArrowUp: -1
-  };
   window.addEventListener(
     "keydown",
     (event) => {
@@ -5134,19 +5196,15 @@ function editableColumn({
         closePalette();
         return;
       }
-      if (!pieFor) {
+      const layer = gesture.layer();
+      if (!layer) {
         return;
       }
-      const step = keyStep[event.key];
-      if (step != null) {
+      const active = soilClasses.findIndex((c) => c.name === layer.class);
+      const command = gesture.key(event.key, active);
+      if (command.kind !== "none") {
         event.preventDefault();
-        const count = soilClasses.length;
-        const active = soilClasses.findIndex((c) => c.name === pieFor.class);
-        const from = armedIndex ?? (active >= 0 ? active : step > 0 ? -1 : 0);
-        armWedge(((from + step) % count + count) % count);
-      } else if ((event.key === "Enter" || event.key === " ") && armedIndex != null) {
-        event.preventDefault();
-        commitClass(soilClasses[armedIndex]);
+        run(command);
       }
     },
     { signal }
@@ -5156,15 +5214,10 @@ function editableColumn({
       return;
     }
     const [px, py] = pointer(event, el);
-    suppressClick = false;
-    press = { x: px, y: py, layer: d };
+    gesture.press(px, py, d);
   }).on("click", (event, d) => {
-    if (suppressClick) {
-      suppressClick = false;
-      return;
-    }
     const [px, py] = pointer(event, el);
-    openPalette(px, py, d);
+    run(gesture.click(px, py, d));
   });
   const placeHandles = (y1) => handlesG.selectAll("rect.handle").attr("y", (i) => y1(layers[i].bottom) - 4.5);
   const placeEditColumn = (y1) => {

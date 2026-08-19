@@ -10,8 +10,8 @@ import type { StripLayout } from "./strip-layout";
 // pairs read as one dijkpaal.
 //
 // The returned component accepts a selection or a transition (the
-// spacing toggle animates the true-scale ticks) and takes the live
-// spacing state as a .call argument, like an axis takes its scale
+// spacing toggle animates the true-scale ticks) and reads the live
+// spacing state from the layout it closes over
 
 export function chainageAxisFor(layout: StripLayout) {
   const { distances, span, groups, anchorX, innerLeft, innerRight } = layout;
@@ -19,13 +19,12 @@ export function chainageAxisFor(layout: StripLayout) {
 
   const formatDistance = d3.format(",.0f");
 
-  return (
-    gOrT: any,
-    { equal, centers }: { equal: boolean; centers: number[] },
-  ) => {
+  return (gOrT: any) => {
     if (n < 2) {
       return;
     }
+    const equal = layout.equalSpacing();
+    const centers = layout.centers();
     // Transition.selection() unwraps; Selection.selection() is identity
     const selection: AnySelection<SVGGElement> = gOrT.selection();
 

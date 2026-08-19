@@ -7,23 +7,28 @@ export interface StripLayout {
   span: number;
   /** runs of tied chainages; a run's members dodge around its anchor */
   groups: { dist: number; index: number[] }[];
-  /** grows past the requested width when the strips need the room */
-  svgWidth: number;
-  /** the svg width when equal-spaced: the requested width unless the
-      strip count alone needs more. Narrower than svgWidth whenever the
-      chainage spread forced true scale to grow */
-  equalSvgWidth: number;
   /** x of the leftmost/rightmost possible strip center */
   innerLeft: number;
   innerRight: number;
   anchorX: (d: number) => number;
-  trueCenters: number[];
-  equalCenters: number[];
-  /** chainage → px for the profile-space overlays: linear in true scale,
-      piecewise-linear between the strip anchors when equal-spaced — an
-      overlay point between two strips stays between them in both modes.
-      Rebuild whenever the active centers change */
-  distToX(centers: number[]): (d: number) => number;
+  /** the spacing mode, scale-style get-set: true scale (false, the
+      default) anchors strips at real chainage, equal spacing spreads
+      them over the requested width. Flipping it flips centers, width
+      and distX together — consumers read those live, never copies */
+  equalSpacing(): boolean;
+  equalSpacing(on: boolean): StripLayout;
+  /** strip center xs for the active mode */
+  centers(): number[];
+  /** svg width for the active mode: true scale grows past the requested
+      width when the strips need the room; equal spacing packs into the
+      requested width — keeping the true-scale width would leave a long
+      empty gridline tail to scroll through */
+  width(): number;
+  /** chainage → px for the profile-space overlays in the active mode:
+      linear in true scale, piecewise-linear between the strip anchors
+      when equal-spaced — an overlay point between two strips stays
+      between them in both modes */
+  distX(): (d: number) => number;
 }
 
 interface StripLayoutProps {
@@ -132,17 +137,26 @@ export function stripLayout({
       : () => mid;
   };
 
-  return {
+  // both modes' overlay scales, built once — the accessor just picks
+  const trueDistX = distToX(trueCenters);
+  const equalDistX = distToX(equalCenters);
+
+  let equal = false;
+
+  const layout = {
     distances,
     span,
     groups,
-    svgWidth,
-    equalSvgWidth,
     innerLeft,
     innerRight,
     anchorX,
-    trueCenters,
-    equalCenters,
-    distToX,
-  };
+    centers: () => (equal ? equalCenters : trueCenters),
+    width: () => (equal ? equalSvgWidth : svgWidth),
+    distX: () => (equal ? equalDistX : trueDistX),
+  } as StripLayout;
+
+  layout.equalSpacing = ((on?: boolean) =>
+    on === undefined ? equal : ((equal = on), layout)) as StripLayout["equalSpacing"];
+
+  return layout;
 }
