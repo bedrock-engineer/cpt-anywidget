@@ -1,6 +1,18 @@
+# TODO
+
+## Publish
+
+* Release process: GitHub Actions workflow on tag — `npm ci && npm run build`
+  → `uv build` → PyPI trusted publishing (nothing currently guarantees the
+  `static/` bundles are fresh at release time); plus CI running pytest +
+  tsc + vitest on push
+* Make the GitHub repo public, fill in the description (format-agnostic,
+  not BRO-led)
 * Soil-class vocabulary: `soil_classes` (5 English classes) vs BRO
   `geotechnicalSoilName` (klei, zand, sterkZandigSilt, ...) — decide the
-  editing vocabulary before seeding `editedLayers` from Robertson
+  editing vocabulary before seeding `editedLayers` from Robertson; it
+  becomes the wire format once published
+* Screenshot or GIF at the top of the README
 
 ## Code
 
@@ -13,18 +25,12 @@
   on top once the factories exist. The 2026-08-12 architecture pass did the
   groundwork (zoom drive owns the placer loop, pure ops in layer-edits/
   pie-menu, focus-rig) — what remains is the factory signature and build.
-* BHR-GT (work in progress): align its intake with ADR-0002 —
-  `layers_from_bhrgt` still parses brodata objects in-package and
-  `to_vertical` still coerces numeric strings; decide whether the borehole
-  path gets its own `tidy`-style seam or moves out.
 
-## Plot
-
-### CPT
+## CPT viewer
 
 * Dissipation test data?
 
-### Profile
+## Profile viewer
 
 * Rotation for labels of boreholes & cpt's in profile
 * Borehole strips: mix boreholes into the profile at their chainage —
@@ -57,8 +63,18 @@
   and the JS-library extraction; an uncovered case defines the next
   primitive instead
 
+## Demos
 
+* DOV/XML demo
 * GeoTOP or REGIS integration demo, like https://github.com/cfuentealba/xsboringen/blob/master/xsboringen/examples/example_solids/doorsnede/cross_section_A.png
 * https://github.com/cfuentealba/xsboringen/blob/master/xsboringen/examples/example_regis/doorsnede/cross_section_A.png
 
-#### Interaction
+## Launch
+
+CPT viewer LinkedIn post
+
+* Actually nice
+* Cool 2020's vibe
+* Free
+* Open-source
+* Marimo and Jupyter compatible

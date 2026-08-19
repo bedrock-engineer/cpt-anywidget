@@ -73,6 +73,23 @@ function number$2(x) {
 const ascendingBisect = bisector(ascending$1);
 const bisectRight = ascendingBisect.right;
 bisector(number$2).center;
+function extent(values, valueof) {
+  let min2;
+  let max2;
+  {
+    for (const value of values) {
+      if (value != null) {
+        if (min2 === void 0) {
+          if (value >= value) min2 = max2 = value;
+        } else {
+          if (min2 > value) min2 = value;
+          if (max2 < value) max2 = value;
+        }
+      }
+    }
+  }
+  return [min2, max2];
+}
 const e10 = Math.sqrt(50), e5 = Math.sqrt(10), e2 = Math.sqrt(2);
 function tickSpec(start2, stop, count) {
   const step = (stop - start2) / Math.max(0, count), power = Math.floor(Math.log10(step)), error = step / Math.pow(10, power), factor = error >= e10 ? 10 : error >= e5 ? 5 : error >= e2 ? 2 : 1;
@@ -2467,19 +2484,19 @@ function local(node) {
   while (!node.__brush) if (!(node = node.parentNode)) return;
   return node.__brush;
 }
-function empty(extent) {
-  return extent[0][0] === extent[1][0] || extent[0][1] === extent[1][1];
+function empty(extent2) {
+  return extent2[0][0] === extent2[1][0] || extent2[0][1] === extent2[1][1];
 }
 function brushY() {
   return brush(Y);
 }
 function brush(dim) {
-  var extent = defaultExtent$1, filter2 = defaultFilter$1, touchable = defaultTouchable$1, keys = true, listeners = dispatch("start", "brush", "end"), handleSize = 6, touchending;
+  var extent2 = defaultExtent$1, filter2 = defaultFilter$1, touchable = defaultTouchable$1, keys = true, listeners = dispatch("start", "brush", "end"), handleSize = 6, touchending;
   function brush2(group) {
     var overlay = group.property("__brush", initialize).selectAll(".overlay").data([type("overlay")]);
     overlay.enter().append("rect").attr("class", "overlay").attr("pointer-events", "all").attr("cursor", cursors.overlay).merge(overlay).each(function() {
-      var extent2 = local(this).extent;
-      select(this).attr("x", extent2[0][0]).attr("y", extent2[0][1]).attr("width", extent2[1][0] - extent2[0][0]).attr("height", extent2[1][1] - extent2[0][1]);
+      var extent3 = local(this).extent;
+      select(this).attr("x", extent3[0][0]).attr("y", extent3[0][1]).attr("width", extent3[1][0] - extent3[0][0]).attr("height", extent3[1][1] - extent3[0][1]);
     });
     group.selectAll(".selection").data([type("selection")]).enter().append("rect").attr("class", "selection").attr("cursor", cursors.selection).attr("fill", "#777").attr("fill-opacity", 0.3).attr("stroke", "#fff").attr("shape-rendering", "crispEdges");
     var handle = group.selectAll(".handle").data(dim.handles, function(d) {
@@ -2586,7 +2603,7 @@ function brush(dim) {
   function started(event) {
     if (touchending && !event.touches) return;
     if (!filter2.apply(this, arguments)) return;
-    var that = this, type2 = event.target.__data__.type, mode = (keys && event.metaKey ? type2 = "overlay" : type2) === "selection" ? MODE_DRAG : keys && event.altKey ? MODE_CENTER : MODE_HANDLE, signX = dim === Y ? null : signsX[type2], signY = dim === X ? null : signsY[type2], state = local(that), extent2 = state.extent, selection2 = state.selection, W = extent2[0][0], w0, w1, N = extent2[0][1], n0, n1, E = extent2[1][0], e0, e1, S = extent2[1][1], s0, s1, dx = 0, dy = 0, moving, shifting = signX && signY && keys && event.shiftKey, lockX, lockY, points = Array.from(event.touches || [event], (t) => {
+    var that = this, type2 = event.target.__data__.type, mode = (keys && event.metaKey ? type2 = "overlay" : type2) === "selection" ? MODE_DRAG : keys && event.altKey ? MODE_CENTER : MODE_HANDLE, signX = dim === Y ? null : signsX[type2], signY = dim === X ? null : signsY[type2], state = local(that), extent3 = state.extent, selection2 = state.selection, W = extent3[0][0], w0, w1, N = extent3[0][1], n0, n1, E = extent3[1][0], e0, e1, S = extent3[1][1], s0, s1, dx = 0, dy = 0, moving, shifting = signX && signY && keys && event.shiftKey, lockX, lockY, points = Array.from(event.touches || [event], (t) => {
       const i = t.identifier;
       t = pointer(t, that);
       t.point0 = t.slice();
@@ -2799,12 +2816,12 @@ function brush(dim) {
   }
   function initialize() {
     var state = this.__brush || { selection: null };
-    state.extent = number2(extent.apply(this, arguments));
+    state.extent = number2(extent2.apply(this, arguments));
     state.dim = dim;
     return state;
   }
   brush2.extent = function(_) {
-    return arguments.length ? (extent = typeof _ === "function" ? _ : constant$1(number2(_)), brush2) : extent;
+    return arguments.length ? (extent2 = typeof _ === "function" ? _ : constant$1(number2(_)), brush2) : extent2;
   };
   brush2.filter = function(_) {
     return arguments.length ? (filter2 = typeof _ === "function" ? _ : constant$1(!!_), brush2) : filter2;
@@ -3305,15 +3322,15 @@ function defaultWheelDelta(event) {
 function defaultTouchable() {
   return navigator.maxTouchPoints || "ontouchstart" in this;
 }
-function defaultConstrain(transform, extent, translateExtent) {
-  var dx0 = transform.invertX(extent[0][0]) - translateExtent[0][0], dx1 = transform.invertX(extent[1][0]) - translateExtent[1][0], dy0 = transform.invertY(extent[0][1]) - translateExtent[0][1], dy1 = transform.invertY(extent[1][1]) - translateExtent[1][1];
+function defaultConstrain(transform, extent2, translateExtent) {
+  var dx0 = transform.invertX(extent2[0][0]) - translateExtent[0][0], dx1 = transform.invertX(extent2[1][0]) - translateExtent[1][0], dy0 = transform.invertY(extent2[0][1]) - translateExtent[0][1], dy1 = transform.invertY(extent2[1][1]) - translateExtent[1][1];
   return transform.translate(
     dx1 > dx0 ? (dx0 + dx1) / 2 : Math.min(0, dx0) || Math.max(0, dx1),
     dy1 > dy0 ? (dy0 + dy1) / 2 : Math.min(0, dy0) || Math.max(0, dy1)
   );
 }
 function zoom() {
-  var filter2 = defaultFilter, extent = defaultExtent, constrain = defaultConstrain, wheelDelta = defaultWheelDelta, touchable = defaultTouchable, scaleExtent = [0, Infinity], translateExtent = [[-Infinity, -Infinity], [Infinity, Infinity]], duration = 250, interpolate2 = interpolateZoom, listeners = dispatch("start", "zoom", "end"), touchstarting, touchfirst, touchending, touchDelay = 500, wheelDelay = 150, clickDistance2 = 0, tapDistance = 10;
+  var filter2 = defaultFilter, extent2 = defaultExtent, constrain = defaultConstrain, wheelDelta = defaultWheelDelta, touchable = defaultTouchable, scaleExtent = [0, Infinity], translateExtent = [[-Infinity, -Infinity], [Infinity, Infinity]], duration = 250, interpolate2 = interpolateZoom, listeners = dispatch("start", "zoom", "end"), touchstarting, touchfirst, touchending, touchDelay = 500, wheelDelay = 150, clickDistance2 = 0, tapDistance = 10;
   function zoom2(selection2) {
     selection2.property("__zoom", defaultTransform).on("wheel.zoom", wheeled, { passive: false }).on("mousedown.zoom", mousedowned).on("dblclick.zoom", dblclicked).filter(touchable).on("touchstart.zoom", touchstarted).on("touchmove.zoom", touchmoved).on("touchend.zoom touchcancel.zoom", touchended).style("-webkit-tap-highlight-color", "rgba(0,0,0,0)");
   }
@@ -3336,7 +3353,7 @@ function zoom() {
   };
   zoom2.scaleTo = function(selection2, k, p, event) {
     zoom2.transform(selection2, function() {
-      var e = extent.apply(this, arguments), t0 = this.__zoom, p0 = p == null ? centroid(e) : typeof p === "function" ? p.apply(this, arguments) : p, p1 = t0.invert(p0), k1 = typeof k === "function" ? k.apply(this, arguments) : k;
+      var e = extent2.apply(this, arguments), t0 = this.__zoom, p0 = p == null ? centroid(e) : typeof p === "function" ? p.apply(this, arguments) : p, p1 = t0.invert(p0), k1 = typeof k === "function" ? k.apply(this, arguments) : k;
       return constrain(translate(scale(t0, k1), p0, p1), e, translateExtent);
     }, p, event);
   };
@@ -3345,12 +3362,12 @@ function zoom() {
       return constrain(this.__zoom.translate(
         typeof x === "function" ? x.apply(this, arguments) : x,
         typeof y === "function" ? y.apply(this, arguments) : y
-      ), extent.apply(this, arguments), translateExtent);
+      ), extent2.apply(this, arguments), translateExtent);
     }, null, event);
   };
   zoom2.translateTo = function(selection2, x, y, p, event) {
     zoom2.transform(selection2, function() {
-      var e = extent.apply(this, arguments), t = this.__zoom, p0 = p == null ? centroid(e) : typeof p === "function" ? p.apply(this, arguments) : p;
+      var e = extent2.apply(this, arguments), t = this.__zoom, p0 = p == null ? centroid(e) : typeof p === "function" ? p.apply(this, arguments) : p;
       return constrain(identity.translate(p0[0], p0[1]).scale(t.k).translate(
         typeof x === "function" ? -x.apply(this, arguments) : -x,
         typeof y === "function" ? -y.apply(this, arguments) : -y
@@ -3365,8 +3382,8 @@ function zoom() {
     var x = p0[0] - p1[0] * transform.k, y = p0[1] - p1[1] * transform.k;
     return x === transform.x && y === transform.y ? transform : new Transform(transform.k, x, y);
   }
-  function centroid(extent2) {
-    return [(+extent2[0][0] + +extent2[1][0]) / 2, (+extent2[0][1] + +extent2[1][1]) / 2];
+  function centroid(extent3) {
+    return [(+extent3[0][0] + +extent3[1][0]) / 2, (+extent3[0][1] + +extent3[1][1]) / 2];
   }
   function schedule2(transition, transform, point, event) {
     transition.on("start.zoom", function() {
@@ -3374,7 +3391,7 @@ function zoom() {
     }).on("interrupt.zoom end.zoom", function() {
       gesture(this, arguments).event(event).end();
     }).tween("zoom", function() {
-      var that = this, args = arguments, g = gesture(that, args).event(event), e = extent.apply(that, args), p = point == null ? centroid(e) : typeof point === "function" ? point.apply(that, args) : point, w = Math.max(e[1][0] - e[0][0], e[1][1] - e[0][1]), a = that.__zoom, b = typeof transform === "function" ? transform.apply(that, args) : transform, i = interpolate2(a.invert(p).concat(w / a.k), b.invert(p).concat(w / b.k));
+      var that = this, args = arguments, g = gesture(that, args).event(event), e = extent2.apply(that, args), p = point == null ? centroid(e) : typeof point === "function" ? point.apply(that, args) : point, w = Math.max(e[1][0] - e[0][0], e[1][1] - e[0][1]), a = that.__zoom, b = typeof transform === "function" ? transform.apply(that, args) : transform, i = interpolate2(a.invert(p).concat(w / a.k), b.invert(p).concat(w / b.k));
       return function(t) {
         if (t === 1) t = b;
         else {
@@ -3393,7 +3410,7 @@ function zoom() {
     this.args = args;
     this.active = 0;
     this.sourceEvent = null;
-    this.extent = extent.apply(that, args);
+    this.extent = extent2.apply(that, args);
     this.taps = 0;
   }
   Gesture.prototype = {
@@ -3485,7 +3502,7 @@ function zoom() {
   }
   function dblclicked(event, ...args) {
     if (!filter2.apply(this, arguments)) return;
-    var t0 = this.__zoom, p0 = pointer(event.changedTouches ? event.changedTouches[0] : event, this), p1 = t0.invert(p0), k1 = t0.k * (event.shiftKey ? 0.5 : 2), t1 = constrain(translate(scale(t0, k1), p0, p1), extent.apply(this, args), translateExtent);
+    var t0 = this.__zoom, p0 = pointer(event.changedTouches ? event.changedTouches[0] : event, this), p1 = t0.invert(p0), k1 = t0.k * (event.shiftKey ? 0.5 : 2), t1 = constrain(translate(scale(t0, k1), p0, p1), extent2.apply(this, args), translateExtent);
     noevent(event);
     if (duration > 0) select(this).transition().duration(duration).call(schedule2, t1, p0, event);
     else select(this).call(zoom2.transform, t1, p0, event);
@@ -3564,7 +3581,7 @@ function zoom() {
     return arguments.length ? (touchable = typeof _ === "function" ? _ : constant(!!_), zoom2) : touchable;
   };
   zoom2.extent = function(_) {
-    return arguments.length ? (extent = typeof _ === "function" ? _ : constant([[+_[0][0], +_[0][1]], [+_[1][0], +_[1][1]]]), zoom2) : extent;
+    return arguments.length ? (extent2 = typeof _ === "function" ? _ : constant([[+_[0][0], +_[0][1]], [+_[1][0], +_[1][1]]]), zoom2) : extent2;
   };
   zoom2.scaleExtent = function(_) {
     return arguments.length ? (scaleExtent[0] = +_[0], scaleExtent[1] = +_[1], zoom2) : [scaleExtent[0], scaleExtent[1]];
@@ -3643,18 +3660,18 @@ function hatchDefs(svg, chars) {
   svg.append("defs").selectAll("pattern").data(chars).join("pattern").attr("id", (h) => ids.get(h)).attr("width", 6).attr("height", 6).attr("patternUnits", "userSpaceOnUse").html((h) => HATCH_SHAPE[h]);
   return ids;
 }
-function dodgeLabels(anchors, separation, extent) {
+function dodgeLabels(anchors, separation, extent2) {
   const placed = Array.from({ length: anchors.length }, () => 0);
   if (anchors.length === 0) {
     return placed;
   }
   const centerOf = (cluster) => {
     const mean = cluster.anchorSum / cluster.size;
-    if (!extent) {
+    if (!extent2) {
       return mean;
     }
     const halfSpan = (cluster.size - 1) * separation / 2;
-    return Math.max(Math.min(mean, extent[1] - halfSpan), extent[0] + halfSpan);
+    return Math.max(Math.min(mean, extent2[1] - halfSpan), extent2[0] + halfSpan);
   };
   const firstMemberOf = (cluster) => centerOf(cluster) - (cluster.size - 1) * separation / 2;
   const lastMemberOf = (cluster) => centerOf(cluster) + (cluster.size - 1) * separation / 2;
@@ -3789,65 +3806,83 @@ function wrapLines(text, maxChars) {
   }
   return lines;
 }
-function verticalZoom(svg, {
-  y,
-  width,
-  height,
-  marginLeft,
-  marginRight,
-  marginTop,
-  marginBottom,
-  placers
-}) {
-  let zy = y;
-  const placeAll = () => placers.forEach((place) => place(zy));
-  placeAll();
-  const brush2 = brushY().keyModifiers(false).filter((event) => event.shiftKey).extent([
-    [marginLeft, marginTop],
-    // top-left
-    [width - marginRight, height - marginBottom]
-    // bottom-right
-  ]).on("end", brushEnded);
-  function brushEnded(event) {
-    if (event.selection == null) {
-      return;
+function verticalZoom() {
+  let y;
+  let xExtent;
+  let scaleExtent = [1, 16];
+  let placers = [];
+  let zy;
+  let applied = false;
+  const vz = ((svg) => {
+    if (!y) {
+      throw new TypeError("verticalZoom: set scale() before applying");
     }
-    const [p0, p1] = event.selection;
-    const selectedDomain = [zy.invert(p0), zy.invert(p1)];
-    const [zp0, zp1] = [y(selectedDomain[0]), y(selectedDomain[1])];
-    const newHeight = zp1 - zp0;
-    const k = (height - marginBottom - marginTop) / newHeight;
-    const z = identity.translate(0, marginTop).scale(k).translate(0, -zp0);
-    svg.transition().duration(750).call(zoom$1.transform, z);
-    select(this).call(brush2.move, null);
-  }
-  svg.append("g").call(brush2);
-  function zoomed({ transform }) {
-    zy = transform.rescaleY(y);
+    if (!xExtent) {
+      throw new TypeError("verticalZoom: set xExtent() before applying");
+    }
+    if (svg.empty()) {
+      throw new Error("verticalZoom: applied to an empty selection");
+    }
+    if (applied) {
+      throw new Error("verticalZoom: already applied — one instance per svg");
+    }
+    applied = true;
+    const base = y;
+    const [top, bottom] = extent(base.range());
+    const band = () => {
+      const [x0, x1] = typeof xExtent === "function" ? xExtent() : xExtent;
+      return [
+        [x0, top],
+        [x1, bottom]
+      ];
+    };
+    const placeAll = () => placers.forEach((place) => place(zy ?? base));
     placeAll();
-  }
-  const zoom$1 = zoom().scaleExtent([1, 16]).filter((event) => {
-    if (event.button) {
-      return false;
+    const brush2 = brushY().keyModifiers(false).filter((event) => event.shiftKey).extent(band).on("end", brushEnded);
+    function brushEnded(event) {
+      if (event.selection == null) {
+        return;
+      }
+      const [p0, p1] = event.selection;
+      const cur = zy ?? base;
+      const selectedDomain = [cur.invert(p0), cur.invert(p1)];
+      const [zp0, zp1] = [base(selectedDomain[0]), base(selectedDomain[1])];
+      const newHeight = zp1 - zp0;
+      const k = (bottom - top) / newHeight;
+      const z = identity.translate(0, top).scale(k).translate(0, -zp0);
+      svg.transition().duration(750).call(zoom$1.transform, z);
+      select(this).call(brush2.move, null);
     }
-    if (event.type === "wheel") {
-      return event.ctrlKey || event.metaKey;
+    const gBrush = svg.append("g").call(brush2);
+    function zoomed({ transform }) {
+      zy = transform.rescaleY(base);
+      placeAll();
     }
-    return !event.shiftKey;
-  }).extent([
-    [marginLeft, marginTop],
-    // top-left
-    [width - marginRight, height - marginBottom]
-    // bottom-right
-  ]).translateExtent([
-    [-Infinity, marginTop],
-    [Infinity, height - marginBottom]
-  ]).on("zoom", zoomed);
-  svg.call(zoom$1).on("dblclick.zoom", null).on(
-    "dblclick",
-    () => svg.transition().duration(750).call(zoom$1.transform, identity)
-  );
-  return () => zy;
+    const zoom$1 = zoom().scaleExtent(scaleExtent).filter((event) => {
+      if (event.button) {
+        return false;
+      }
+      if (event.type === "wheel") {
+        return event.ctrlKey || event.metaKey;
+      }
+      return !event.shiftKey;
+    }).extent(band).translateExtent([
+      [-Infinity, top],
+      [Infinity, bottom]
+    ]).on("zoom", zoomed);
+    svg.call(zoom$1).on("dblclick.zoom", null).on(
+      "dblclick.vzoom",
+      () => svg.transition().duration(750).call(zoom$1.transform, identity)
+    ).on("pointerenter.vzoom", () => {
+      gBrush.call(brush2).raise();
+    });
+  });
+  vz.scale = ((v) => v === void 0 ? y : (y = v, vz));
+  vz.xExtent = ((v) => v === void 0 ? xExtent : (xExtent = v, vz));
+  vz.scaleExtent = ((v) => v === void 0 ? scaleExtent : (scaleExtent = v, vz));
+  vz.placers = ((v) => v === void 0 ? placers : (placers = v, vz));
+  vz.currentScale = () => zy ?? y;
+  return vz;
 }
 const boreholeViewer = {
   render({ model, el }) {
@@ -3935,9 +3970,10 @@ const boreholeViewer = {
       const l = layers[bisectTop(layers, value) - 1];
       return l && value >= Math.min(l.top, l.bottom) && value <= Math.max(l.top, l.bottom) ? l : void 0;
     };
+    const vz = verticalZoom().scale(y).xExtent([marginLeft, width - marginRight]);
     function pointermoved(event) {
       const [, ym] = pointer(event);
-      const value = current().invert(ym);
+      const value = vz.currentScale().invert(ym);
       const layer = layerAt(value);
       if (!layer) {
         rig.hide();
@@ -3949,16 +3985,7 @@ const boreholeViewer = {
       placeDescription(layer);
     }
     svg.on("pointerenter pointermove", pointermoved).on("pointerleave", rig.hide);
-    const current = verticalZoom(svg, {
-      y,
-      width,
-      height,
-      marginLeft,
-      marginRight,
-      marginTop,
-      marginBottom,
-      placers: [(y1) => gy.call(yAxis, y1), placeLayers, placeAnnotations]
-    });
+    svg.call(vz.placers([(y1) => gy.call(yAxis, y1), placeLayers, placeAnnotations]));
   }
 };
 export {

@@ -4,9 +4,7 @@ import pathlib
 import anywidget
 import traitlets
 
-from cpt_anywidget.cpt_viewer import Channel
-from cpt_anywidget.intake import split, tidy
-from cpt_anywidget.vertical import Vertical, resolve_vertical
+from cpt_anywidget.intake import _normalize_traits, split, tidy
 
 _HERE = pathlib.Path(__file__).parent
 
@@ -140,15 +138,19 @@ class ProfileViewer(anywidget.AnyWidget):
         (→ ``axisLimits``); the vertical pair is oriented to the render
         direction, so callers can pass it either way round.
 
-        Trait names still pass through ``**kwargs`` unchanged; data
-        passed raw via ``cpts=`` skips all of the above.
+        Trait names still pass through ``**kwargs`` unchanged; a raw
+        ``verticalKey=`` kwarg still counts as the vertical here (it
+        orients ``limits`` and sorts ``data``), and data passed raw via
+        ``cpts=`` skips all of the above.
         """
-        vert = resolve_vertical(
-            vertical
-            if vertical is not None
-            else type(self).verticalKey.default_value
+        vert, traits = _normalize_traits(
+            vertical=vertical,
+            channels=channels,
+            limits=limits,
+            default=kwargs.get(
+                "verticalKey", type(self).verticalKey.default_value
+            ),
         )
-        descending = vert.up  # elevation: highest sample on top
         if data is not None:
             groups = split(data, name)
             if positions is None:
@@ -176,17 +178,5 @@ class ProfileViewer(anywidget.AnyWidget):
                 ),
                 key=lambda c: c["distance"],
             )
-        if vertical is not None:
-            kwargs["verticalKey"] = (
-                vertical.spec() if isinstance(vertical, Vertical) else vertical
-            )
-        if channels is not None:
-            kwargs["channels"] = [
-                c.spec() if isinstance(c, Channel) else c for c in channels
-            ]
-        if limits is not None:
-            kwargs["axisLimits"] = {
-                k: sorted(v, reverse=descending) if k == vert.key else list(v)
-                for k, v in limits.items()
-            }
+        kwargs.update(traits)
         super().__init__(**kwargs)

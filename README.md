@@ -1,10 +1,11 @@
 # cpt-anywidget
 
 [anywidget](https://anywidget.dev) viewers for cone penetration tests (CPT)
-and geotechnical boreholes from the Dutch [BRO](https://basisregistratieondergrond.nl/),
-rendered with plain d3. Built for notebook use (marimo, Jupyter). Every
-viewer shares a zoomable vertical axis in depth below surface or elevation
-(m NAP), so soundings, borehole logs, and interpretations line up.
+and geotechnical boreholes, rendered with plain [D3](https://d3js.org/). Built for notebook use
+(marimo, Jupyter). Every viewer shares a zoomable vertical axis in depth below surface or elevation, so soundings, borehole logs, and
+interpretations line up.
+
+Full documentation: [bedrock.engineer/docs/cpt-anywidget](https://bedrock.engineer/docs/cpt-anywidget)
 
 ## Viewers
 
@@ -22,11 +23,14 @@ viewer shares a zoomable vertical axis in depth below surface or elevation
 
 ## Install
 
-Not on PyPI yet, install from git:
+From [PyPI](https://pypi.org/project/cpt-anywidget/), with
+[uv](https://docs.astral.sh/uv/) (recommended):
 
 ```sh
-uv add "cpt-anywidget @ git+https://github.com/bedrock-engineer/cpt-anywidget"
+uv add cpt-anywidget
 ```
+
+or with pip: `pip install cpt-anywidget`.
 
 The `bro` extra (`cpt-anywidget[bro]`) pulls in `brodata`, needed only for
 `layers_from_bhrgt` and `layers_from_bore` (the lithology color table).
@@ -105,5 +109,5 @@ Live development happens in `notebooks/cpt-explore.py` with marimo:
 uv run marimo edit notebooks/cpt-explore.py
 ```
 
-Set `ANYWIDGET_HMR=1` so JS edits hot-reload in the browser. Sample BRO XML
-files live in `examples/`.
+Set `ANYWIDGET_HMR=1` so JS edits hot-reload in the browser. Sample files
+(BRO XML, GEF, AGS) live in `examples/`.

@@ -273,9 +273,13 @@ export default {
         : undefined;
     };
 
+    // the zoom drive; applied at the end of setup, but currentScale is
+    // valid already — pointermoved reads it directly
+    const vz = verticalZoom().scale(y).xExtent([marginLeft, width - marginRight]);
+
     function pointermoved(event: PointerEvent) {
       const [, ym] = d3.pointer(event);
-      const value = current().invert(ym);
+      const value = vz.currentScale().invert(ym);
       const layer = layerAt(value);
 
       if (!layer) {
@@ -292,18 +296,8 @@ export default {
 
     svg.on("pointerenter pointermove", pointermoved).on("pointerleave", rig.hide);
 
-    // last on purpose: the zoom drive appends the brush overlay, which
-    // must stay on top. It runs the initial placement pass and re-places
-    // on every zoom
-    const current = verticalZoom(svg, {
-      y,
-      width,
-      height,
-      marginLeft,
-      marginRight,
-      marginTop,
-      marginBottom,
-      placers: [(y1) => gy.call(yAxis, y1), placeLayers, placeAnnotations],
-    });
+    // apply the zoom drive: it runs the initial placement pass, re-places
+    // on every zoom, and its brush overlay re-raises itself on hover
+    svg.call(vz.placers([(y1) => gy.call(yAxis, y1), placeLayers, placeAnnotations]));
   },
 };

@@ -212,6 +212,10 @@ export default {
       gridRight: totalWidth,
     });
 
+    // the zoom drive; applied at the end of setup, but currentScale is
+    // valid already — the handlers built below take it directly
+    const vz = verticalZoom().scale(y).xExtent([marginLeft, width - marginRight]);
+
     const placeOverlays = overlayLayer(svg, model.get("overlays") ?? [], {
       seriesByKey,
       clipId,
@@ -311,9 +315,7 @@ export default {
       // data extent (first to last sample, in the vertical coordinate)
       verticalExtent: [vertical[0] ?? 0, vertical[vertical.length - 1] ?? 0],
       layerColumn,
-      // closes over the zoom drive declared below; pointer events
-      // can't fire before render completes, so the read is safe
-      currentY: () => current(),
+      currentY: vz.currentScale,
     });
 
     columnPlacers.push(placeHandles);
@@ -329,22 +331,12 @@ export default {
       marginLeft,
       marginRight,
       width,
-      currentY: () => current(),
+      currentY: vz.currentScale,
     });
 
-    // last on purpose: the zoom drive appends the brush overlay, which
-    // must stay on top of everything gesture-sensitive. It runs the
-    // initial placement pass and re-places on every zoom
-    const current = verticalZoom(svg, {
-      y,
-      width,
-      height,
-      marginLeft,
-      marginRight,
-      marginTop,
-      marginBottom,
-      placers: [place, placeOverlays, placeAnnotations, placeColumns],
-    });
+    // apply the zoom drive: it runs the initial placement pass, re-places
+    // on every zoom, and its brush overlay re-raises itself on hover
+    svg.call(vz.placers([place, placeOverlays, placeAnnotations, placeColumns]));
 
     return () => controller.abort();
   },

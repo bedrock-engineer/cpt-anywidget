@@ -3,6 +3,7 @@ import pathlib
 import anywidget
 import traitlets
 
+from cpt_anywidget.intake import _normalize_traits
 from cpt_anywidget.vertical import to_vertical
 
 _HERE = pathlib.Path(__file__).parent
@@ -145,3 +146,34 @@ class BoreholeViewer(anywidget.AnyWidget):
     height = traitlets.Int().tag(sync=True)
 
     width = traitlets.Int().tag(sync=True)
+
+    def __init__(self, layers=None, *, vertical=None, limits=None, **kwargs):
+        """Pythonic facade over the JSON-flat traits.
+
+        ``layers`` — the layer dicts (→ ``layers``), already in the wire
+        shape: hand-built, or from :func:`layers_from_bhrgt` /
+        :func:`layers_from_bore`. Nothing to tidy here — a borehole log
+        has no sample columns.
+        ``vertical`` — the vertical coordinate the layers are expressed
+        in (→ ``verticalKey``): a key string,
+        :class:`~cpt_anywidget.vertical.Vertical` binding, or raw spec
+        dict.
+        ``limits`` — {verticalKey: (min, max)} axis override
+        (→ ``axisLimits``); the pair is oriented to the render
+        direction, so callers can pass it either way round.
+
+        Trait names still pass through ``**kwargs`` unchanged; a raw
+        ``verticalKey=`` kwarg still counts as the vertical here (it
+        orients ``limits``).
+        """
+        _, traits = _normalize_traits(
+            vertical=vertical,
+            limits=limits,
+            default=kwargs.get(
+                "verticalKey", type(self).verticalKey.default_value
+            ),
+        )
+        if layers is not None:
+            kwargs["layers"] = list(layers)
+        kwargs.update(traits)
+        super().__init__(**kwargs)

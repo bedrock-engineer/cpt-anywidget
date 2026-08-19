@@ -4,8 +4,7 @@ import pathlib
 import anywidget
 import traitlets
 
-from cpt_anywidget.intake import tidy
-from cpt_anywidget.vertical import Vertical, resolve_vertical
+from cpt_anywidget.intake import _normalize_traits, tidy
 
 _HERE = pathlib.Path(__file__).parent
 
@@ -154,28 +153,20 @@ class CPTViewer(anywidget.AnyWidget):
 
         Trait names (``cptData=``, ``annotations=``, …) still pass
         through ``**kwargs`` unchanged — the wire format is the traits;
-        this constructor only normalizes into them. Data passed raw via
+        this constructor only normalizes into them. A raw
+        ``verticalKey=`` kwarg still counts as the vertical here: it
+        orients ``limits`` and sorts ``data``. Data passed raw via
         ``cptData=`` skips all of the above.
         """
-        vert = resolve_vertical(
-            vertical
-            if vertical is not None
-            else type(self).verticalKey.default_value
+        vert, traits = _normalize_traits(
+            vertical=vertical,
+            channels=channels,
+            limits=limits,
+            default=kwargs.get(
+                "verticalKey", type(self).verticalKey.default_value
+            ),
         )
-        descending = vert.up  # elevation: highest sample on top
         if data is not None:
             kwargs["cptData"] = tidy(data, vert)
-        if vertical is not None:
-            kwargs["verticalKey"] = (
-                vertical.spec() if isinstance(vertical, Vertical) else vertical
-            )
-        if channels is not None:
-            kwargs["channels"] = [
-                c.spec() if isinstance(c, Channel) else c for c in channels
-            ]
-        if limits is not None:
-            kwargs["axisLimits"] = {
-                k: sorted(v, reverse=descending) if k == vert.key else list(v)
-                for k, v in limits.items()
-            }
+        kwargs.update(traits)
         super().__init__(**kwargs)

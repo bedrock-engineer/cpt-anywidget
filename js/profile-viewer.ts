@@ -166,6 +166,14 @@ export default {
     // a long empty gridline tail to scroll through
     let curWidth = equal ? equalSvgWidth : svgWidth;
 
+    // the zoom drive; applied at the end of setup, but currentScale is
+    // valid already — the pointer handlers below take it directly. The
+    // xExtent thunk is re-read per gesture, so the brush tracks curWidth
+    // across the spacing toggle
+    const vz = verticalZoom()
+      .scale(y)
+      .xExtent(() => [marginLeft, curWidth - marginRight]);
+
     // toolbar above the svg; the toggle round-trips through the trait so
     // Python can flip it too
     const toolbar = d3
@@ -598,7 +606,7 @@ export default {
     const valueGroup = rig.focus.append("g").attr("display", "none");
 
     const placeStripValues = (si: number | null, py: number) => {
-      const zy = current();
+      const zy = vz.currentScale();
       const c = si == null ? null : cpts[si];
       const vertical = c ? vertOf(c) : [];
       const i = c ? bisectStrip(vertical, zy.invert(py)) : 0;
@@ -652,7 +660,7 @@ export default {
       }
 
       rig.show(py);
-      rig.readout.text(`${formatVertical(current().invert(py))} m`);
+      rig.readout.text(`${formatVertical(vz.currentScale().invert(py))} m`);
       placeStripValues(si, py);
     });
 
@@ -679,33 +687,26 @@ export default {
       model.save_changes();
     });
 
-    // last on purpose: the zoom drive appends the brush overlay, which
-    // must stay on top. It runs the initial placement pass and re-places
-    // on every zoom. The grid wrapper reads the live yGrid binding —
-    // placeStrips rebuilds it when the spacing mode changes the width
-    const current = verticalZoom(svg, {
-      y,
-      width: svgWidth,
-      height,
-      marginLeft,
-      marginRight,
-      marginTop,
-      marginBottom,
-      placers: [
+    // apply the zoom drive: it runs the initial placement pass and
+    // re-places on every zoom. The grid wrapper reads the live yGrid
+    // binding — placeStrips rebuilds it when the spacing mode changes
+    // the width
+    svg.call(
+      vz.placers([
         placeAxes,
         (y1) => gGrid.call(yGrid, y1),
         placeLayers,
         placeTraces,
         placeOverlays,
         placeAnnotations,
-      ],
-    });
+      ]),
+    );
 
     const onSelected = () => applySelection();
     const onSpacing = () => {
       equal = model.get("equalSpacing") ?? false;
       checkbox.property("checked", equal);
-      placeStrips(true, current());
+      placeStrips(true, vz.currentScale());
     };
 
     model.on("change:selected", onSelected);
