@@ -24,8 +24,22 @@ describe("focusRig", () => {
 
   it("spans the rule from the axis to the given right edge", () => {
     const rig = setup();
-    expect(rig.rule.attr("x1")).toBe("50");
-    expect(rig.rule.attr("x2")).toBe("350");
+    const rule = rig.focus.select("line");
+    expect(rule.attr("x1")).toBe("50");
+    expect(rule.attr("x2")).toBe("350");
+  });
+
+  it("re-reads a ruleX2 thunk on every show", () => {
+    let right = 350;
+    const rig = focusRig(d3.select(document.body).append("svg"), {
+      marginLeft: 50,
+      ruleX2: () => right,
+    });
+
+    right = 500; // the profile's spacing toggle widening the plot
+    rig.show(42);
+
+    expect(rig.focus.select("line").attr("x2")).toBe("500");
   });
 
   it("readoutHost relocates the readout and keeps show/hide in sync", () => {

@@ -4097,16 +4097,19 @@ function focusRig(svg, {
   ruleX2,
   readoutHost
 }) {
+  const ruleX2Of = typeof ruleX2 === "function" ? ruleX2 : () => ruleX2;
   const focus = svg.append("g").attr("display", "none").attr("pointer-events", "none");
-  const rule = focus.append("line").attr("x1", marginLeft).attr("x2", ruleX2).attr("stroke", "currentColor").attr("stroke-opacity", 0.3);
+  const rule = focus.append("line").attr("x1", marginLeft).attr("x2", ruleX2Of()).attr("stroke", "currentColor").attr("stroke-opacity", 0.3);
   const readoutGroup = readoutHost ? readoutHost.append("g").attr("display", "none").attr("pointer-events", "none") : focus;
   const readout = readoutGroup.append("text").attr("x", marginLeft - 8).attr("dy", "0.32em").attr("text-anchor", "end").attr("font-size", 12).attr("font-weight", "bold").attr("fill", "currentColor").call(haloText);
   const groups = readoutGroup === focus ? [focus] : [focus, readoutGroup];
   return {
     focus,
-    rule,
     readout,
-    show: (ym) => groups.forEach((g) => g.attr("display", null).attr("transform", `translate(0,${ym})`)),
+    show: (ym) => {
+      rule.attr("x2", ruleX2Of());
+      groups.forEach((g) => g.attr("display", null).attr("transform", `translate(0,${ym})`));
+    },
     hide: () => groups.forEach((g) => g.attr("display", "none"))
   };
 }
@@ -4364,7 +4367,7 @@ function verticalZoom() {
       const newHeight = zp1 - zp0;
       const k = (bottom2 - top2) / newHeight;
       const z = identity.translate(0, top2).scale(k).translate(0, -zp0);
-      svg.transition().duration(750).call(zoom$1.transform, z);
+      svg.transition().duration(500).call(zoom$1.transform, z);
       select(this).call(brush2.move, null);
     }
     const gBrush = svg.append("g").call(brush2);
@@ -4386,7 +4389,7 @@ function verticalZoom() {
     ]).on("zoom", zoomed);
     svg.call(zoom$1).on("dblclick.zoom", null).on(
       "dblclick.vzoom",
-      () => svg.transition().duration(750).call(zoom$1.transform, identity)
+      () => svg.transition().duration(500).call(zoom$1.transform, identity)
     ).on("pointerenter.vzoom", () => {
       gBrush.call(brush2).raise();
     });
@@ -4585,10 +4588,9 @@ const profileViewer = {
       const centers = layout.centers();
       const curWidth = layout.width();
       svg.select(`#${clipId} rect`).attr("width", curWidth - marginLeft - marginRight);
-      rig.rule.attr("x2", curWidth - marginRight);
       const transform = (_, i) => `translate(${centers[i] - stripWidth / 2},0)`;
       if (animate) {
-        const t = svg.transition().duration(600);
+        const t = svg.transition().duration(500);
         t.attr("width", curWidth).attr(
           "viewBox",
           [0, 0, curWidth, height].join(",")
@@ -4611,7 +4613,7 @@ const profileViewer = {
     };
     const rig = focusRig(svg, {
       marginLeft,
-      ruleX2: plotRight(),
+      ruleX2: plotRight,
       readoutHost: pinnedLeft
     });
     placeStrips(false, y2);

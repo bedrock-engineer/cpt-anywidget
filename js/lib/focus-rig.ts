@@ -17,8 +17,6 @@ export const haloText = (text: AnySelection<SVGTextElement>, strokeWidth = 4) =>
 export interface FocusRig {
   /** the group; callers append their own extra readouts to it */
   focus: AnySelection<SVGGElement>;
-  /** the rule; a caller with a live plot width retargets its x2 */
-  rule: AnySelection<SVGLineElement>;
   /** the vertical-value text on the axis; the caller sets its text */
   readout: AnySelection<SVGTextElement>;
   /** translate the group to pixel ym and reveal it */
@@ -34,19 +32,24 @@ export function focusRig(
     readoutHost,
   }: {
     marginLeft: number;
-    ruleX2: number;
+    /** the rule's right edge; a thunk is re-read on every show — pass
+        one when the plot width can change after setup (the profile's
+        spacing toggle) */
+    ruleX2: number | (() => number);
     /** append the readout into this svg instead of the focus group — a
         pinned overlay keeps the value at the viewport edge while a wide
         chart scrolls under it. Same pixel coordinates as the chart svg */
     readoutHost?: AnySelection<SVGSVGElement>;
   },
 ): FocusRig {
+  const ruleX2Of = typeof ruleX2 === "function" ? ruleX2 : () => ruleX2;
+
   const focus = svg.append("g").attr("display", "none").attr("pointer-events", "none");
 
   const rule = focus
     .append("line")
     .attr("x1", marginLeft)
-    .attr("x2", ruleX2)
+    .attr("x2", ruleX2Of())
     .attr("stroke", "currentColor")
     .attr("stroke-opacity", 0.3);
 
@@ -68,10 +71,11 @@ export function focusRig(
 
   return {
     focus,
-    rule,
     readout,
-    show: (ym) =>
-      groups.forEach((g) => g.attr("display", null).attr("transform", `translate(0,${ym})`)),
+    show: (ym) => {
+      rule.attr("x2", ruleX2Of()); // live width, like the zoom band
+      groups.forEach((g) => g.attr("display", null).attr("transform", `translate(0,${ym})`));
+    },
     hide: () => groups.forEach((g) => g.attr("display", "none")),
   };
 }

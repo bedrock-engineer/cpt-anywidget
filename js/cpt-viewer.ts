@@ -114,14 +114,16 @@ export default {
     // differently across widget instances; unknown covers classless layers
     const soilClasses = model.get("soil_classes") ?? [];
 
-    const classColor: (name: string) => string = d3
+    const classColor = d3
       .scaleOrdinal(
         soilClasses.map((c) => c.name),
         soilClasses.map((c) => c.color),
       )
       .unknown("#ccc");
 
-    const classLabel = new Map(soilClasses.map((c) => [c.name, c.label ?? c.name]));
+    const classLabel = new Map(
+      soilClasses.map((c) => [c.name, c.label ?? c.name]),
+    );
 
     // manually editable layer column: one flat layer list in the same shape
     // as an interpretation column's layers; edits sync back to Python.
@@ -197,9 +199,9 @@ export default {
       .style("-webkit-user-select", "none"); // still required in Safari
 
     // the chart core: curves, stacked x axes, grids, the vertical axis.
-    // Margins come back grown by the axis stacking; place() redraws the
-    // chart's parts in the zoom loop alongside the widget's own placers
-    const { series, seriesByKey, y, clipId, marginTop, marginBottom, place } = cptChart(svg, {
+    // place() redraws the chart's parts in the zoom loop alongside the
+    // widget's own placers
+    const { series, seriesByKey, y, clipId, place } = cptChart(svg, {
       cptData,
       vertical,
       vert,
@@ -212,9 +214,15 @@ export default {
       gridRight: totalWidth,
     });
 
+    // the plot's vertical extent is the scale's range — the margins the
+    // chart grew for its stacked x axes are already inside it
+    const [plotTop, plotBottom] = y.range();
+
     // the zoom drive; applied at the end of setup, but currentScale is
     // valid already — the handlers built below take it directly
-    const vz = verticalZoom().scale(y).xExtent([marginLeft, width - marginRight]);
+    const vz = verticalZoom()
+      .scale(y)
+      .xExtent([marginLeft, width - marginRight]);
 
     const placeOverlays = overlayLayer(svg, model.get("overlays") ?? [], {
       seriesByKey,
@@ -230,11 +238,14 @@ export default {
 
     // headers sit above the clip region so they don't scroll with zoom;
     // appended to the column group, so x is column-local
-    const columnHeader = (g: AnySelection<SVGGElement>, label: (d: ColumnSpec) => string) =>
+    const columnHeader = (
+      g: AnySelection<SVGGElement>,
+      label: (d: ColumnSpec) => string,
+    ) =>
       g
         .append("text")
         .attr("x", column.width / 2)
-        .attr("y", marginTop - 8)
+        .attr("y", plotTop - 8)
         .attr("text-anchor", "middle")
         .attr("font-size", 12)
         .attr("font-weight", "bold")
@@ -246,15 +257,17 @@ export default {
     // it reaches into the gap so boundary depth labels aren't cut off
     const columnClipId = plotClip(svg, "column-clip", {
       x: -column.gap,
-      y: marginTop,
+      y: plotTop,
       width: column.width + column.gap,
-      height: height - marginTop - marginBottom,
+      height: plotBottom - plotTop,
     });
 
     // one <pattern> def per hatch char used by any column's bands
     const usedHatches = [
       ...new Set(
-        columns.flatMap((c) => c.layers.flatMap((l) => (l.bands ?? []).map((b) => b.hatch))),
+        columns.flatMap((c) =>
+          c.layers.flatMap((l) => (l.bands ?? []).map((b) => b.hatch)),
+        ),
       ),
     ].filter(Boolean) as string[];
 
@@ -279,12 +292,17 @@ export default {
       .attr("transform", (d) => `translate(${d.x},0)`)
       .call(columnHeader, (d: ColumnSpec) => d.label);
 
-    const columnBody = gColumn.append("g").attr("clip-path", `url(#${columnClipId})`);
+    const columnBody = gColumn
+      .append("g")
+      .attr("clip-path", `url(#${columnClipId})`);
 
-    const columnLayers = columnBody.append("g").call(layerColumn, (d: ColumnSpec) => d.layers);
+    const columnLayers = columnBody
+      .append("g")
+      .call(layerColumn, (d: ColumnSpec) => d.layers);
 
     const columnPlacers = [
-      (y1: d3.ScaleLinear<number, number>) => placeLayerColumn(columnLayers, y1),
+      (y1: d3.ScaleLinear<number, number>) =>
+        placeLayerColumn(columnLayers, y1),
     ];
 
     // the editable column already exists in the columns join — pick its
@@ -309,8 +327,8 @@ export default {
       soilClasses,
       classLabel,
       columnWidth: column.width,
-      plotTop: marginTop,
-      plotBottom: height - marginBottom,
+      plotTop,
+      plotBottom,
       // a first layer created in the empty column spans the sounding's
       // data extent (first to last sample, in the vertical coordinate)
       verticalExtent: [vertical[0] ?? 0, vertical[vertical.length - 1] ?? 0],
@@ -336,7 +354,9 @@ export default {
 
     // apply the zoom drive: it runs the initial placement pass, re-places
     // on every zoom, and its brush overlay re-raises itself on hover
-    svg.call(vz.placers([place, placeOverlays, placeAnnotations, placeColumns]));
+    svg.call(
+      vz.placers([place, placeOverlays, placeAnnotations, placeColumns]),
+    );
 
     return () => controller.abort();
   },

@@ -522,7 +522,6 @@ export default {
       svg
         .select(`#${clipId} rect`)
         .attr("width", curWidth - marginLeft - marginRight);
-      rig.rule.attr("x2", curWidth - marginRight);
 
       const transform = (_: ProfileCpt, i: number) =>
         `translate(${centers[i] - stripWidth / 2},0)`;
@@ -530,7 +529,7 @@ export default {
       if (animate) {
         const t: d3.Transition<any, any, any, any> = svg
           .transition()
-          .duration(600);
+          .duration(500);
         t.attr("width", curWidth).attr(
           "viewBox",
           [0, 0, curWidth, height].join(","),
@@ -559,14 +558,14 @@ export default {
 
     // crosshair: a rule across the whole profile with the vertical value
     // on the axis — the shared axis is the comparison tool, so the
-    // readout spans strips instead of reading one channel value. Built
-    // before the first placeStrips call, which retargets the rule's x2
-    // whenever the spacing mode changes the width
+    // readout spans strips instead of reading one channel value. The
+    // rule's x2 is a thunk, re-read on every show, so it tracks the
+    // spacing mode's width by itself.
     // the readout renders in the pinned overlay so it stays at the
     // viewport edge with the axis copy; same pixel space, no conversion
     const rig = focusRig(svg, {
       marginLeft,
-      ruleX2: plotRight(),
+      ruleX2: plotRight,
       readoutHost: pinnedLeft,
     });
 

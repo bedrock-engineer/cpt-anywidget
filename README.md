@@ -103,11 +103,5 @@ npm install
 npm run build     # or: npm run dev (watch mode)
 ```
 
-Live development happens in `notebooks/cpt-explore.py` with marimo:
-
-```sh
-uv run marimo edit notebooks/cpt-explore.py
-```
-
 Set `ANYWIDGET_HMR=1` so JS edits hot-reload in the browser. Sample files
 (BRO XML, GEF, AGS) live in `examples/`.

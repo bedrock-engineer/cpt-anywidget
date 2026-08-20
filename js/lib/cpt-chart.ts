@@ -16,21 +16,20 @@ import type { ResolvedVertical } from "./vertical";
 // vertical axis — resolved series, the x axes stacked outward from the
 // plot edge, both gridline layers, the left vertical axis with its
 // title, and the curve paths. Draws once into the given svg; everything
-// downstream features hang onto (scale, margins, clip, series) is
-// returned, and place() redraws the chart's own parts against a zoomed
-// scale so the caller can compose it with its own placers
+// downstream features hang onto (scale, clip, series) is returned, and
+// place() redraws the chart's own parts against a zoomed scale so the
+// caller can compose it with its own placers
 
 export interface CptChart {
   /** resolved, plottable channels in axis stacking order */
   series: Series[];
   seriesByKey: Map<string, Series>;
-  /** the unzoomed vertical scale */
+  /** the unzoomed vertical scale; its range is the plot's vertical
+      extent — [top, bottom] px, margins grown by the stacked x-axis
+      slots already applied */
   y: VerticalScale;
   /** clip id for anything else drawn in plot space */
   clipId: string;
-  /** vertical margins grown by the stacked x-axis slots */
-  marginTop: number;
-  marginBottom: number;
   /** redraw the y axis, gridlines and curves against a (zoomed) scale */
   place: Placer;
 }
@@ -177,8 +176,6 @@ export function cptChart(
     seriesByKey: new Map(series.map((s) => [s.key, s])),
     y,
     clipId,
-    marginTop,
-    marginBottom,
     place,
   };
 }

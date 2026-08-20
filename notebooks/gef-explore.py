@@ -1,8 +1,9 @@
 # /// script
 # requires-python = ">=3.13"
 # dependencies = [
+#     "brodata>=0.1.8",
 #     "cpt-anywidget",
-#     "marimo>=0.23.16",
+#     "marimo>=0.24",
 #     "polars>=1.43",
 #     "pygef>=0.14",
 # ]
@@ -17,10 +18,10 @@ __generated_with = "0.23.16"
 app = marimo.App(width="medium")
 
 
-@app.cell(hide_code=True)
+@app.cell
 def _(mo):
     mo.md("""
-    # GEF CPTs with pygef
+    # anywidget-cpt GEF CPTs with pygef
 
     [pygef](https://cemsbv.github.io/pygef/) parses the GEF exchange
     format into a polars DataFrame with BRO column names. `CPTViewer`

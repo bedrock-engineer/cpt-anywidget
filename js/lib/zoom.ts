@@ -113,7 +113,7 @@ export function verticalZoom(): VerticalZoom {
 
       svg
         .transition()
-        .duration(750)
+        .duration(500)
         .call(zoom.transform as any, z);
 
       d3.select(this).call(brush.move, null); // clear brush rect
@@ -153,7 +153,7 @@ export function verticalZoom(): VerticalZoom {
       .on("dblclick.vzoom", () =>
         svg
           .transition()
-          .duration(750)
+          .duration(500)
           .call(zoom.transform as any, d3.zoomIdentity),
       )
       // the pointer must enter the svg before any gesture can start, so

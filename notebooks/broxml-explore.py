@@ -3,17 +3,19 @@
 # dependencies = [
 #     "brodata==0.1.8",
 #     "cpt-anywidget",
-#     "marimo>=0.23.16",
-#     "pandas==3.0.5",
+#     "d-geolib-plus",
+#     "marimo>=0.24",
+#     "pandas==2.3.3",
 # ]
 #
 # [tool.uv.sources]
 # cpt-anywidget = { path = "..", editable = true }
+# d-geolib-plus = { git = "https://github.com/Deltares/GEOLib-Plus" }
 # ///
 
 import marimo
 
-__generated_with = "0.23.16"
+__generated_with = "0.24.0"
 app = marimo.App(width="medium")
 
 
@@ -27,7 +29,7 @@ def _():
     os.environ["ANYWIDGET_HMR"] = "1"
 
     from cpt_anywidget import (
-        BHRGTViewer,
+        BoreholeViewer,
         CPTViewer,
         ProfileViewer,
         chainage,
@@ -47,7 +49,7 @@ def _():
     )
 
     return (
-        BHRGTViewer,
+        BoreholeViewer,
         BroXmlCpt,
         CPTViewer,
         ConePenetrationTest,
@@ -214,17 +216,6 @@ def _(mo):
 
 
 @app.cell(hide_code=True)
-def _(cpt_interps, mo):
-    # seed the editable column from one of the interpretations; starts empty
-    seed_select = mo.ui.radio(
-        options=[col["label"] for col in cpt_interps],
-        label="seed edit column from",
-    )
-    seed_select
-    return (seed_select,)
-
-
-@app.cell(hide_code=True)
 def _(mo):
     mo.md("""
     ### Navigating the chart
@@ -275,6 +266,18 @@ def _(at, cpt, gwl):
         "dash": "4,3",
     }
     return (hydrostatic,)
+
+
+@app.cell(hide_code=True)
+def _(cpt_interps, mo):
+    # seed the editable column from one of the interpretations; starts empty
+    seed_select = mo.ui.radio(
+        options=[col["label"] for col in cpt_interps],
+        label="seed edit column from",
+        inline=True
+    )
+    seed_select
+    return (seed_select,)
 
 
 @app.cell
@@ -701,10 +704,10 @@ def _(mo):
 
 
 @app.cell
-def _(BHRGTViewer, gt_borehole, layers_from_bhrgt):
+def _(BoreholeViewer, gt_borehole, layers_from_bhrgt):
     # the standalone borehole viewer: soil-composition bands per layer,
     # same zoom/hover contract as the CPT chart
-    BHRGTViewer(layers=layers_from_bhrgt(gt_borehole, "depth"))
+    BoreholeViewer(layers=layers_from_bhrgt(gt_borehole, "depth"))
     return
 
 

@@ -1,7 +1,7 @@
 [project]
 name = "cpt-anywidget"
 version = "0.1.0"
-description = "anywidget viewers for CPT soundings and geotechnical boreholes"
+description = "anywidget viewers for CPT soundings and geotechnicaleholes"
 readme = "README.md"
 authors = [{ name = "Jules Blom @ Bedrock Technologies B.V." }]
 license = "Apache-2.0"
@@ -49,7 +49,7 @@ dev = [
     "anywidget[dev]>=0.11.0",
     "brodata>=0.1.8",
     "d-geolib-plus",
-    "marimo>=0.23.13",
+    "marimo>=0.24",
     "pygef>=0.14.1; python_version >= '3.11'",
     "pytest>=8",
     "python-ags4>=1.2.0",

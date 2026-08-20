@@ -2,7 +2,7 @@
 # requires-python = ">=3.13"
 # dependencies = [
 #     "cpt-anywidget",
-#     "marimo>=0.23.16",
+#     "marimo>=0.24",
 #     "python-ags4>=1.1",
 # ]
 #

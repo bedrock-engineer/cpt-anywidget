@@ -4501,8 +4501,6 @@ function cptChart(svg, {
     seriesByKey: new Map(series.map((s) => [s.key, s])),
     y: y2,
     clipId,
-    marginTop,
-    marginBottom,
     place
   };
 }
@@ -4696,16 +4694,19 @@ function focusRig(svg, {
   ruleX2,
   readoutHost
 }) {
+  const ruleX2Of = typeof ruleX2 === "function" ? ruleX2 : () => ruleX2;
   const focus = svg.append("g").attr("display", "none").attr("pointer-events", "none");
-  const rule = focus.append("line").attr("x1", marginLeft).attr("x2", ruleX2).attr("stroke", "currentColor").attr("stroke-opacity", 0.3);
+  const rule = focus.append("line").attr("x1", marginLeft).attr("x2", ruleX2Of()).attr("stroke", "currentColor").attr("stroke-opacity", 0.3);
   const readoutGroup = readoutHost ? readoutHost.append("g").attr("display", "none").attr("pointer-events", "none") : focus;
   const readout = readoutGroup.append("text").attr("x", marginLeft - 8).attr("dy", "0.32em").attr("text-anchor", "end").attr("font-size", 12).attr("font-weight", "bold").attr("fill", "currentColor").call(haloText);
   const groups = readoutGroup === focus ? [focus] : [focus, readoutGroup];
   return {
     focus,
-    rule,
     readout,
-    show: (ym) => groups.forEach((g) => g.attr("display", null).attr("transform", `translate(0,${ym})`)),
+    show: (ym) => {
+      rule.attr("x2", ruleX2Of());
+      groups.forEach((g) => g.attr("display", null).attr("transform", `translate(0,${ym})`));
+    },
     hide: () => groups.forEach((g) => g.attr("display", "none"))
   };
 }
@@ -4799,7 +4800,7 @@ function verticalZoom() {
       const newHeight = zp1 - zp0;
       const k = (bottom2 - top2) / newHeight;
       const z = identity.translate(0, top2).scale(k).translate(0, -zp0);
-      svg.transition().duration(750).call(zoom$1.transform, z);
+      svg.transition().duration(500).call(zoom$1.transform, z);
       select(this).call(brush2.move, null);
     }
     const gBrush = svg.append("g").call(brush2);
@@ -4821,7 +4822,7 @@ function verticalZoom() {
     ]).on("zoom", zoomed);
     svg.call(zoom$1).on("dblclick.zoom", null).on(
       "dblclick.vzoom",
-      () => svg.transition().duration(750).call(zoom$1.transform, identity)
+      () => svg.transition().duration(500).call(zoom$1.transform, identity)
     ).on("pointerenter.vzoom", () => {
       gBrush.call(brush2).raise();
     });
@@ -5282,7 +5283,9 @@ const cptViewer = {
       soilClasses.map((c) => c.name),
       soilClasses.map((c) => c.color)
     ).unknown("#ccc");
-    const classLabel = new Map(soilClasses.map((c) => [c.name, c.label ?? c.name]));
+    const classLabel = new Map(
+      soilClasses.map((c) => [c.name, c.label ?? c.name])
+    );
     const editedLayers = (model.get("editedLayers") ?? []).map((l) => ({
       ...l
     }));
@@ -5323,7 +5326,7 @@ const cptViewer = {
     const { totalWidth, x0 } = layoutColumns(columns, width, column);
     const svgRight = totalWidth + laneExtent;
     const svg = select(el).append("svg").attr("viewBox", [x0, 0, svgRight - x0, height].join(",")).attr("width", svgRight - x0).attr("height", height).style("max-width", "100%").style("height", "auto").style("user-select", "none").style("-webkit-user-select", "none");
-    const { series, seriesByKey, y: y2, clipId, marginTop, marginBottom, place } = cptChart(svg, {
+    const { series, seriesByKey, y: y2, clipId, place } = cptChart(svg, {
       cptData,
       vertical,
       vert,
@@ -5335,6 +5338,7 @@ const cptViewer = {
       // gridlines reach across the layer columns
       gridRight: totalWidth
     });
+    const [plotTop, plotBottom] = y2.range();
     const vz = verticalZoom().scale(y2).xExtent([marginLeft, width - marginRight]);
     const placeOverlays = overlayLayer(svg, model.get("overlays") ?? [], {
       seriesByKey,
@@ -5346,16 +5350,18 @@ const cptViewer = {
       marginRight,
       width
     });
-    const columnHeader = (g, label) => g.append("text").attr("x", column.width / 2).attr("y", marginTop - 8).attr("text-anchor", "middle").attr("font-size", 12).attr("font-weight", "bold").attr("fill", "currentColor").text(label);
+    const columnHeader = (g, label) => g.append("text").attr("x", column.width / 2).attr("y", plotTop - 8).attr("text-anchor", "middle").attr("font-size", 12).attr("font-weight", "bold").attr("fill", "currentColor").text(label);
     const columnClipId = plotClip(svg, "column-clip", {
       x: -8,
-      y: marginTop,
+      y: plotTop,
       width: column.width + column.gap,
-      height: height - marginTop - marginBottom
+      height: plotBottom - plotTop
     });
     const usedHatches = [
       ...new Set(
-        columns.flatMap((c) => c.layers.flatMap((l) => (l.bands ?? []).map((b) => b.hatch)))
+        columns.flatMap(
+          (c) => c.layers.flatMap((l) => (l.bands ?? []).map((b) => b.hatch))
+        )
       )
     ].filter(Boolean);
     const hatchId = hatchDefs(svg, usedHatches);
@@ -5386,8 +5392,8 @@ const cptViewer = {
       soilClasses,
       classLabel,
       columnWidth: column.width,
-      plotTop: marginTop,
-      plotBottom: height - marginBottom,
+      plotTop,
+      plotBottom,
       // a first layer created in the empty column spans the sounding's
       // data extent (first to last sample, in the vertical coordinate)
       verticalExtent: [vertical[0] ?? 0, vertical[vertical.length - 1] ?? 0],
@@ -5407,7 +5413,9 @@ const cptViewer = {
       width,
       currentY: vz.currentScale
     });
-    svg.call(vz.placers([place, placeOverlays, placeAnnotations, placeColumns]));
+    svg.call(
+      vz.placers([place, placeOverlays, placeAnnotations, placeColumns])
+    );
     return () => controller.abort();
   }
 };
