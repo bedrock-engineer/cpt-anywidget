@@ -24,7 +24,7 @@ The package contains three viewers:
 
 ## Requirements
 
-- Python 3.13 or newer.
+- Python 3.10 or newer.
 - A notebook environment: marimo, Jupyter, or another anywidget host.
 
 ## Install
@@ -123,6 +123,7 @@ chart.
 - [`ProfileViewer` reference](/docs/cpt-anywidget/reference/profile-viewer/)
   — build a cross-section from many CPTs.
 - [`BoreholeViewer` reference](/docs/cpt-anywidget/reference/borehole-viewer/)
-  — show a borehole log from a BRO BHR-GT or GEF file.
+  — show a borehole log from any source, with converters for BRO BHR-GT
+  and GEF files.
 - [Data intake reference](/docs/cpt-anywidget/reference/intake/) — the
   exact data contract, and the `tidy` and `split` helpers.

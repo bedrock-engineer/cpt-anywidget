@@ -19,10 +19,11 @@ BoreholeViewer(layers=[
 ])
 ```
 
-The `layers` trait is plain dicts, so any source format works. For the
-common Dutch formats there are converters: [`layers_from_bhrgt`](#layers_from_bhrgt)
-for brodata's BRO BHR-GT objects and [`layers_from_bore`](#layers_from_bore)
-for pygef's borehole logs (GEF or BRO XML).
+The `layers` trait is plain dicts, so any source works: BRO XML, GEF,
+AGS, or your own interpretation. For the common Dutch formats there are
+converters: [`layers_from_bhrgt`](#layers_from_bhrgt) for brodata's BRO
+BHR-GT objects and [`layers_from_bore`](#layers_from_bore) for pygef's
+borehole logs (GEF or BRO XML).
 
 ## Traits
 
@@ -41,9 +42,15 @@ layer holds proportional soil-composition `bands`: `x1` and `x2` are
 fractions in `[0, 1]`. `hatch` is an optional matplotlib-style pattern
 character (`-`, `/`, `\`, `.`, `o`, `|`) rendered as an SVG pattern.
 
+The widget labels each layer boundary with its depth, in a strip right
+of the bands. When layers get thin, the labels dodge apart and leader
+lines point back to their boundaries — the same behavior as the
+interpretation columns in `CPTViewer`.
+
 A layer can also carry an optional `description` — free text such as a
-field description. It shows word-wrapped next to the crosshair while
-hovering the layer.
+field description. While you hover the layer, the soil name and the
+description show word-wrapped in the readout area right of the label
+strip.
 
 ### `verticalKey` — str or dict
 
@@ -66,7 +73,9 @@ as
 
 ### `width`, `height` — int
 
-The plot size in pixels. `0` (the default) falls back to 220×800.
+The plot size in pixels. `0` (the default) falls back to 220×800. The
+boundary-label strip and the hover readouts widen the widget beyond
+`width`.
 
 ## layers_from_bhrgt
 

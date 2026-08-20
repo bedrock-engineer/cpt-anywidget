@@ -699,7 +699,6 @@ version = "0.1.0"
 source = { editable = "." }
 dependencies = [
     { name = "anywidget" },
-    { name = "brodata" },
 ]
 
 [package.optional-dependencies]
@@ -724,7 +723,6 @@ jupyter = [
 [package.metadata]
 requires-dist = [
     { name = "anywidget", specifier = ">=0.9" },
-    { name = "brodata", specifier = ">=0.1.8" },
     { name = "brodata", marker = "extra == 'bro'", specifier = ">=0.1.8" },
 ]
 provides-extras = ["bro"]

@@ -212,8 +212,14 @@ The soil-class palette, the single source of truth for layer colors:
 ```
 
 Layers reference an entry via their `class` key. Override this trait to
-change the classes or colors project-wide. Default: gravel, sand, silt,
-clay, peat.
+change the classes or colors project-wide.
+
+Default
+* gravel
+* sand
+* silt
+* clay
+* peat.
 
 ### `width`, `height` — int
 

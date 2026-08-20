@@ -1,7 +1,7 @@
 [project]
 name = "cpt-anywidget"
 version = "0.1.0"
-description = "anywidget viewers for CPT soundings and geotechnicaleholes"
+description = "anywidget viewers for CPT soundings and geotechnical boreholes"
 readme = "README.md"
 authors = [{ name = "Jules Blom @ Bedrock Technologies B.V." }]
 license = "Apache-2.0"
@@ -79,3 +79,13 @@ build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/cpt_anywidget"]
+
+[tool.hatch.build.targets.sdist]
+exclude = [
+    "/.claude",
+    "/CLAUDE.md",
+    "/CONTEXT.md",
+    "/DEMO_IDEA.md",
+    "/TODO.md",
+    "**/.ipynb_checkpoints",
+]
