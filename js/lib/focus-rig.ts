@@ -8,11 +8,15 @@ import type { AnySelection } from "./types";
 // docs/adr/0001-crosshair-variants-stay-separate.md. The rig only
 // builds, shows at a pixel, and hides.
 
-/** white halo keeping readouts legible over curves and soil fills; the
-    default weight suits crosshair readouts — in-plot labels pass a
+/** halo keeping readouts legible over curves and soil fills. Canvas is
+    the color-scheme-aware page background system color, so the halo
+    stays a backdrop on dark pages too; hosts that declare no
+    color-scheme resolve it white, the old behavior. Inline style, not
+    attr: presentation attributes don't reliably parse system colors.
+    The default weight suits crosshair readouts — in-plot labels pass a
     lighter strokeWidth via selection.call(haloText, w) */
-export const haloText = (text: AnySelection<SVGTextElement>, strokeWidth = 4) =>
-  text.attr("stroke", "white").attr("stroke-width", strokeWidth).attr("paint-order", "stroke");
+export const haloText = (text: AnySelection<SVGTextElement>, strokeWidth = 1.5) =>
+  text.style("stroke", "Canvas").attr("stroke-width", strokeWidth).attr("paint-order", "stroke");
 
 export interface FocusRig {
   /** the group; callers append their own extra readouts to it */

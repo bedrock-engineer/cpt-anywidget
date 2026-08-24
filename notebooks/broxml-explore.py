@@ -198,12 +198,6 @@ def _(cpt_data, mo):
     return (channel_select,)
 
 
-@app.cell
-def _(get_edited_layers, pd):
-    pd.DataFrame(get_edited_layers())
-    return
-
-
 @app.cell(hide_code=True)
 def _(mo):
     vertical_select = mo.ui.radio(
@@ -280,7 +274,7 @@ def _(cpt_interps, mo):
     return (seed_select,)
 
 
-@app.cell
+@app.cell(hide_code=True)
 def _(
     CPTViewer,
     at,
@@ -374,6 +368,12 @@ def _(
 
     viewer.observe(_on_edit, names="editedLayers")
     viewer
+    return
+
+
+@app.cell
+def _(get_edited_layers, pd):
+    pd.DataFrame(get_edited_layers())
     return
 
 

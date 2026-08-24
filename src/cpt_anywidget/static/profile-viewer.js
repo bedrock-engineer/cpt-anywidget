@@ -4020,12 +4020,34 @@ function makeXScale(values, range, limits) {
   const scale = linear().range(range);
   return limits ? scale.domain(limits) : scale.domain([Math.min(0, min$1(finite)), max$1(finite)]).nice();
 }
+const haloText = (text, strokeWidth = 1.5) => text.style("stroke", "Canvas").attr("stroke-width", strokeWidth).attr("paint-order", "stroke");
+function focusRig(svg, {
+  marginLeft,
+  ruleX2,
+  readoutHost
+}) {
+  const ruleX2Of = typeof ruleX2 === "function" ? ruleX2 : () => ruleX2;
+  const focus = svg.append("g").attr("display", "none").attr("pointer-events", "none");
+  const rule = focus.append("line").attr("x1", marginLeft).attr("x2", ruleX2Of()).attr("stroke", "currentColor").attr("stroke-opacity", 0.3);
+  const readoutGroup = readoutHost ? readoutHost.append("g").attr("display", "none").attr("pointer-events", "none") : focus;
+  const readout = readoutGroup.append("text").attr("x", marginLeft - 8).attr("dy", "0.32em").attr("text-anchor", "end").attr("font-size", 12).attr("font-weight", "bold").attr("fill", "currentColor").call(haloText);
+  const groups = readoutGroup === focus ? [focus] : [focus, readoutGroup];
+  return {
+    focus,
+    readout,
+    show: (ym) => {
+      rule.attr("x2", ruleX2Of());
+      groups.forEach((g) => g.attr("display", null).attr("transform", `translate(0,${ym})`));
+    },
+    hide: () => groups.forEach((g) => g.attr("display", "none"))
+  };
+}
 function annotationLayer(svg, annotations, { clipId, marginLeft, marginRight, width }) {
   const currentWidth = typeof width === "function" ? width : () => width;
   const labelAnchor = { left: "start", center: "middle", right: "end" };
   const annotation = svg.append("g").attr("clip-path", `url(#${clipId})`).selectAll("g").data(annotations).join("g");
   const line2 = annotation.append("line").attr("x1", marginLeft).attr("stroke", (d) => d.color ?? "currentColor").attr("stroke-dasharray", (d) => d.dash ?? "4 3");
-  const label = annotation.append("text").attr("y", (d) => -4 + (d.offset?.[1] ?? 0)).attr("text-anchor", (d) => labelAnchor[d.position ?? "right"]).attr("font-size", 11).attr("fill", (d) => d.color ?? "currentColor").attr("stroke", "white").attr("stroke-width", 1.5).attr("paint-order", "stroke").text((d) => d.label ?? "");
+  const label = annotation.append("text").attr("y", (d) => -4 + (d.offset?.[1] ?? 0)).attr("text-anchor", (d) => labelAnchor[d.position ?? "right"]).attr("font-size", 11).attr("fill", (d) => d.color ?? "currentColor").call(haloText).text((d) => d.label ?? "");
   return (y1) => {
     const w = currentWidth();
     const labelX = {
@@ -4090,28 +4112,6 @@ function plotClip(svg, prefix, { x: x2, y: y2, width, height }) {
   const id2 = `${prefix}-${crypto.randomUUID()}`;
   svg.append("clipPath").attr("id", id2).append("rect").attr("x", x2).attr("y", y2).attr("width", width).attr("height", height);
   return id2;
-}
-const haloText = (text, strokeWidth = 4) => text.attr("stroke", "white").attr("stroke-width", strokeWidth).attr("paint-order", "stroke");
-function focusRig(svg, {
-  marginLeft,
-  ruleX2,
-  readoutHost
-}) {
-  const ruleX2Of = typeof ruleX2 === "function" ? ruleX2 : () => ruleX2;
-  const focus = svg.append("g").attr("display", "none").attr("pointer-events", "none");
-  const rule = focus.append("line").attr("x1", marginLeft).attr("x2", ruleX2Of()).attr("stroke", "currentColor").attr("stroke-opacity", 0.3);
-  const readoutGroup = readoutHost ? readoutHost.append("g").attr("display", "none").attr("pointer-events", "none") : focus;
-  const readout = readoutGroup.append("text").attr("x", marginLeft - 8).attr("dy", "0.32em").attr("text-anchor", "end").attr("font-size", 12).attr("font-weight", "bold").attr("fill", "currentColor").call(haloText);
-  const groups = readoutGroup === focus ? [focus] : [focus, readoutGroup];
-  return {
-    focus,
-    readout,
-    show: (ym) => {
-      rule.attr("x2", ruleX2Of());
-      groups.forEach((g) => g.attr("display", null).attr("transform", `translate(0,${ym})`));
-    },
-    hide: () => groups.forEach((g) => g.attr("display", "none"))
-  };
 }
 function minimap(host, scroller, { stripWidth, height = 20, signal }) {
   let centers = [];
@@ -4179,7 +4179,7 @@ function profileOverlayLayer(svg, overlays, {
 }) {
   const overlayG = svg.append("g").attr("clip-path", `url(#${clipId})`).selectAll("g").data(overlays).join("g");
   const overlayPath = overlayG.append("path").attr("fill", "none").attr("stroke", (o) => o.color ?? "currentColor").attr("stroke-dasharray", (o) => o.dash ?? null).attr("stroke-width", (o) => o.width ?? 1.5);
-  const overlayLabel = overlayG.append("text").attr("font-size", 11).attr("fill", (o) => o.color ?? "currentColor").attr("stroke", "white").attr("stroke-width", 1.75).attr("paint-order", "stroke").text((o) => o.label ?? "");
+  const overlayLabel = overlayG.append("text").attr("font-size", 11).attr("fill", (o) => o.color ?? "currentColor").call(haloText).text((o) => o.label ?? "");
   return (y1, { centers, distX }, t) => {
     const firstVertex = (o) => {
       if (o.levels) {
@@ -4438,7 +4438,7 @@ const profileViewer = {
       select(el).append("div").text("no plottable CPT data");
       return;
     }
-    const marginLeft = 50;
+    const marginLeft = 70;
     const marginRight = 40;
     const marginTop = 28;
     const marginBottom = 62 + axisSlot * (series.length - 1);
@@ -4541,7 +4541,7 @@ const profileViewer = {
       svg.append("text").attr("x", 0).attr("y", chainY + 9).attr("dy", "0.71em").attr("text-anchor", "start").attr("font-size", 10).attr("font-weight", "bold").attr("fill", "currentColor").text("distance [m]");
     }
     const strip = svg.selectAll("g.strip").data(cpts).join("g").attr("class", "strip");
-    const stripLayer = strip.append("g").attr("clip-path", `url(#${stripClipId})`).selectAll("rect").data((c) => c.layers ?? []).join("rect").attr("x", 0).attr("width", stripWidth).attr("fill", (l) => l.color ?? "#999").attr("fill-opacity", 0.8).attr("stroke", "white").attr("stroke-width", 0.5);
+    const stripLayer = strip.append("g").attr("clip-path", `url(#${stripClipId})`).selectAll("rect").data((c) => c.layers ?? []).join("rect").attr("x", 0).attr("width", stripWidth).attr("fill", (l) => l.color ?? "#999").attr("fill-opacity", 0.8).style("stroke", "Canvas").attr("stroke-width", 0.5);
     const placeLayers = (y1) => stripLayer.attr("y", (l) => Math.min(y1(l.top), y1(l.bottom))).attr("height", (l) => Math.abs(y1(l.bottom) - y1(l.top)));
     strip.append("rect").attr("class", "frame").attr("x", 0).attr("y", marginTop).attr("width", stripWidth).attr("height", yBottom - marginTop).attr("fill", "transparent");
     strip.selectAll("g.channel-axis").data(() => series).join("g").attr("class", "channel-axis").attr("transform", (_, i) => `translate(0,${yBottom + axisSlot * i})`).each(function(s) {

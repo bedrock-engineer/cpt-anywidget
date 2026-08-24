@@ -42,7 +42,9 @@ export default {
     const width = model.get("width") || 220;
     const height = model.get("height") || 800;
 
-    const marginLeft = 50;
+    // 70 fits the widest end-anchored crosshair readout ("-28.80 m",
+    // bold 12px) left of the axis — 50 clipped it at the svg edge
+    const marginLeft = 70;
     const marginRight = 20;
     const marginTop = 24;
     const marginBottom = 10;

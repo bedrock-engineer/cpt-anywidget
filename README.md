@@ -2,7 +2,7 @@
 
 [anywidget](https://anywidget.dev) viewers for cone penetration tests (CPT)
 and geotechnical boreholes, rendered with plain [D3](https://d3js.org/). Built for notebook use
-(marimo, Jupyter). Every viewer shares a zoomable vertical axis in depth below surface or elevation, so soundings, borehole logs, and
+([marimo](https://marimo.io/), [Jupyter](https://jupyter.org/)). Every viewer shares a zoomable vertical axis in depth below surface or elevation, so soundings, borehole logs, and
 interpretations line up.
 
 Full documentation: [bedrock.engineer/docs/cpt-anywidget](https://bedrock.engineer/docs/cpt-anywidget)
@@ -14,9 +14,10 @@ Full documentation: [bedrock.engineer/docs/cpt-anywidget](https://bedrock.engine
   a nearby borehole log, read-only interpretation columns (e.g. Robertson,
   Lengkeek), and an editable layer column synced back to Python.
 - **`BoreholeViewer`** — a single borehole log with proportional
-  soil-composition bands and hatch patterns; `layers_from_bhrgt` (brodata
-  BHR-GT) and `layers_from_bore` (pygef GEF/BRO XML) convert parsed
-  boreholes into its `layers` trait.
+  soil-composition bands and hatch patterns; its `layers` trait takes
+  plain dicts from any source, and `layers_from_bhrgt` (brodata BHR-GT)
+  and `layers_from_bore` (pygef GEF/BRO XML) convert boreholes already
+  in the Dutch BRO soil vocabulary.
 - **`ProfileViewer`** — multiple CPTs side by side along a chainage axis
   (a cross-section); `chainage` computes along-profile distances from map
   coordinates.
@@ -31,9 +32,6 @@ uv add cpt-anywidget
 ```
 
 or with pip: `pip install cpt-anywidget`.
-
-The `bro` extra (`cpt-anywidget[bro]`) pulls in `brodata`, needed only for
-`layers_from_bhrgt` and `layers_from_bore` (the lithology color table).
 
 ## Usage
 
@@ -51,9 +49,10 @@ CPTViewer(df, vertical="depth", channels=["coneResistance", "localFriction"])
 ```
 
 `data` is [tidy](https://data.europa.eu/apps/data-visualisation-guide/intro-to-tidy-data) columns — a polars or pandas DataFrame or a dict of
-equal-length lists — one row per depth sample. The widget never parses file
+columns (lists, tuples, numpy arrays) — one row per depth sample. The widget never parses file
 formats or converts units: loaders (e.g. [brodata](https://pypi.org/project/brodata/))
-normalize upstream. BRO column names get built-in display defaults; any
+normalize upstream. The Dutch BRO column names get built-in display
+defaults; any
 other column can be bound with `Channel(key, label=…, unit=…, color=…, side=…)`.
 Custom vertical datums work the same way via `Vertical(key, label=…, up=…)`.
 
@@ -65,8 +64,8 @@ gestures.
 
 ### Zoom and pan — all viewers
 
-- To zoom the vertical axis, hold the Ctrl key (Cmd on macOS) and turn
-  the mouse wheel. A trackpad pinch also zooms.
+- To zoom the vertical axis, hold the <kbd>Ctrl</kbd> key (<kbd>Cmd</kbd> on macOS) and turn
+  the mouse wheel. Pinching on a trackpad or touch device also zooms.
 - To pan a zoomed axis, drag in the plot area.
 - To zoom to a range, hold the Shift key and drag along the axis.
 - To reset the zoom, double-click in the plot area.

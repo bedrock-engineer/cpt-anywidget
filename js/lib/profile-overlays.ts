@@ -1,4 +1,5 @@
 import * as d3 from "./d3";
+import { haloText } from "./focus-rig";
 import type { AnySelection, ProfileOverlay, VerticalScale } from "./types";
 
 // profile-space overlays (groundwater level, surface line, ...) span
@@ -40,9 +41,7 @@ export function profileOverlayLayer(
     .append("text")
     .attr("font-size", 11)
     .attr("fill", (o) => o.color ?? "currentColor")
-    .attr("stroke", "white")
-    .attr("stroke-width", 1.75)
-    .attr("paint-order", "stroke")
+    .call(haloText)
     .text((o) => o.label ?? "");
 
   return (

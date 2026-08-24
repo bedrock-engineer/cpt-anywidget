@@ -1,3 +1,4 @@
+import { haloText } from "./focus-rig";
 import type { Annotation, AnySelection, Placer } from "./types";
 
 interface AnnotationConfig {
@@ -41,9 +42,7 @@ export function annotationLayer(
     .attr("text-anchor", (d) => labelAnchor[d.position ?? "right"])
     .attr("font-size", 11)
     .attr("fill", (d) => d.color ?? "currentColor")
-    .attr("stroke", "white")
-    .attr("stroke-width", 1.5)
-    .attr("paint-order", "stroke")
+    .call(haloText)
     .text((d) => d.label ?? "");
 
   // the width-dependent attrs are re-applied on every placement, so

@@ -701,11 +701,6 @@ dependencies = [
     { name = "anywidget" },
 ]
 
-[package.optional-dependencies]
-bro = [
-    { name = "brodata" },
-]
-
 [package.dev-dependencies]
 dev = [
     { name = "anywidget", extra = ["dev"] },
@@ -721,11 +716,7 @@ jupyter = [
 ]
 
 [package.metadata]
-requires-dist = [
-    { name = "anywidget", specifier = ">=0.9" },
-    { name = "brodata", marker = "extra == 'bro'", specifier = ">=0.1.8" },
-]
-provides-extras = ["bro"]
+requires-dist = [{ name = "anywidget", specifier = ">=0.9" }]
 
 [package.metadata.requires-dev]
 dev = [

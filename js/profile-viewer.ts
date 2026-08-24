@@ -109,7 +109,9 @@ export default {
       return;
     }
 
-    const marginLeft = 50;
+    // 70 fits the widest end-anchored crosshair readout ("-12.50 m",
+    // bold 12px) left of the axis — 50 clipped it at the svg edge
+    const marginLeft = 70;
     const marginRight = 40; // room for the right vertical axis labels
     const marginTop = 28;
     // room under the plot for the per-strip channel axes — one slot per
@@ -397,7 +399,7 @@ export default {
       .attr("width", stripWidth)
       .attr("fill", (l) => l.color ?? "#999")
       .attr("fill-opacity", 0.8)
-      .attr("stroke", "white")
+      .style("stroke", "Canvas")
       .attr("stroke-width", 0.5);
 
     // min/max instead of trusting top < bottom in pixel space: NAP runs

@@ -14,6 +14,8 @@ shared, zoomable vertical axis. Around the plot, it can show:
 - a nearby borehole log,
 - an editable layer column that syncs edits back to Python.
 
+![A CPTViewer: four measurement channels with stacked axes and hover readouts, a groundwater-level annotation, the Robertson and Lengkeek interpretation columns, and the editable layer column with a split preview](../cpt.webp)
+
 ```python
 from cpt_anywidget import CPTViewer, Channel
 
@@ -31,14 +33,14 @@ CPTViewer(
 CPTViewer(data=None, *, vertical=None, channels=None, limits=None, **kwargs)
 ```
 
-The constructor is a facade over the [traits](#traits). It normalizes
-Python-friendly values into the JSON wire format. You can also pass any
+The constructor is a facade over the [traits](#traits). It turns
+Python-friendly values into the plain JSON the traits hold. You can also pass any
 trait directly as a keyword argument. Data passed raw via `cptData=`
 skips the intake step.
 
 | Parameter | Type | Description |
 | --- | --- | --- |
-| `data` | DataFrame or dict | Tidy columns: one row per depth sample, one column per measurement. Accepts a polars or pandas DataFrame, or a dict of equal-length lists. Goes through [`tidy`](/docs/cpt-anywidget/reference/intake/#tidy): samples become JSON-safe, and rows sort into render order. |
+| `data` | DataFrame or dict | Tidy columns: one row per depth sample, one column per measurement. Accepts a polars or pandas DataFrame, or a dict of equal-length columns (any iterables). Goes through [`tidy`](/docs/cpt-anywidget/reference/intake/#tidy): samples become JSON-safe, and rows sort into render order. |
 | `vertical` | str, `Vertical`, or dict | The column that holds the vertical coordinate. Must be present in `data`. `"depth"` sorts ascending, `"nap"` descending. See [`Vertical`](/docs/cpt-anywidget/reference/vertical/). |
 | `channels` | list | The channels to plot, in axis stacking order. Mix column-name strings, [`Channel`](#channel) bindings, and raw dicts. |
 | `limits` | dict | `{column: (min, max)}` axis overrides. The vertical pair may come in either order; the constructor orients it to the render direction. |
@@ -66,7 +68,9 @@ Channel("qn", label="qn", unit="MPa", color="tomato", side="bottom")
 
 ### Built-in channel defaults
 
-Columns with these names need no binding:
+Columns with these names, taken from the Dutch
+[BRO](https://basisregistratieondergrond.nl/) standard, need no
+binding:
 
 | Column | Label | Unit | Side |
 | --- | --- | --- | --- |
@@ -81,7 +85,7 @@ Bottom axes stack left to right. Top axes stack right to left.
 
 ## Traits
 
-The traits are the JSON wire format between Python and the browser. Every
+The traits are the JSON that syncs between Python and the browser. Every
 trait syncs live: set a trait on an existing widget and the chart
 updates.
 
@@ -89,8 +93,8 @@ updates.
 
 The measurement data: `{"depth": [...], "coneResistance": [...], ...}`.
 Each key is a column name. Each value is a list of samples. All lists
-have equal length. Use `None` for a missing sample — NaN is not valid
-JSON and breaks the sync. The first sample renders at the top.
+have equal length. Use `None` for a missing sample, because NaN is not
+valid JSON and breaks the sync. The first sample renders at the top.
 
 Prefer the `data` constructor argument, which enforces this contract.
 
@@ -167,10 +171,10 @@ Each layer holds proportional soil-composition `bands` with x in
 `[0, 1]` and an optional matplotlib-style `hatch` character. An empty
 dict `{}` hides the column.
 
-The borehole and the CPT have different surface elevations. Express
-both in a shared datum such as NAP — convert with
-[`to_vertical`](/docs/cpt-anywidget/reference/vertical/#to_vertical).
-See
+Because the borehole and the CPT have different surface elevations,
+express both in a shared datum such as NAP;
+[`to_vertical`](/docs/cpt-anywidget/reference/vertical/#to_vertical)
+does the conversion. See
 [`layers_from_bhrgt`](/docs/cpt-anywidget/reference/borehole-viewer/#layers_from_bhrgt)
 for the band shape.
 
@@ -203,6 +207,10 @@ In the widget, the user can:
   its class),
 - click a layer to pick its class from a pie menu.
 
+The [Edit layers](/docs/cpt-anywidget/edit-layers/) guide walks
+through the workflow: seeding the column, the gestures, and keeping
+the edits alive across widget rebuilds.
+
 ### `soil_classes` — list
 
 The soil-class palette, the single source of truth for layer colors:
@@ -212,14 +220,8 @@ The soil-class palette, the single source of truth for layer colors:
 ```
 
 Layers reference an entry via their `class` key. Override this trait to
-change the classes or colors project-wide.
-
-Default
-* gravel
-* sand
-* silt
-* clay
-* peat.
+change the classes or colors project-wide. The default palette holds
+gravel, sand, silt, clay, and peat.
 
 ### `width`, `height` — int
 

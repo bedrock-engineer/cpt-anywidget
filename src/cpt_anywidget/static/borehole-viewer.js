@@ -1,9 +1,31 @@
+const haloText = (text, strokeWidth = 1.5) => text.style("stroke", "Canvas").attr("stroke-width", strokeWidth).attr("paint-order", "stroke");
+function focusRig(svg, {
+  marginLeft,
+  ruleX2,
+  readoutHost
+}) {
+  const ruleX2Of = typeof ruleX2 === "function" ? ruleX2 : () => ruleX2;
+  const focus = svg.append("g").attr("display", "none").attr("pointer-events", "none");
+  const rule = focus.append("line").attr("x1", marginLeft).attr("x2", ruleX2Of()).attr("stroke", "currentColor").attr("stroke-opacity", 0.3);
+  const readoutGroup = readoutHost ? readoutHost.append("g").attr("display", "none").attr("pointer-events", "none") : focus;
+  const readout = readoutGroup.append("text").attr("x", marginLeft - 8).attr("dy", "0.32em").attr("text-anchor", "end").attr("font-size", 12).attr("font-weight", "bold").attr("fill", "currentColor").call(haloText);
+  const groups = readoutGroup === focus ? [focus] : [focus, readoutGroup];
+  return {
+    focus,
+    readout,
+    show: (ym) => {
+      rule.attr("x2", ruleX2Of());
+      groups.forEach((g) => g.attr("display", null).attr("transform", `translate(0,${ym})`));
+    },
+    hide: () => groups.forEach((g) => g.attr("display", "none"))
+  };
+}
 function annotationLayer(svg, annotations, { clipId, marginLeft, marginRight, width }) {
   const currentWidth = typeof width === "function" ? width : () => width;
   const labelAnchor = { left: "start", center: "middle", right: "end" };
   const annotation = svg.append("g").attr("clip-path", `url(#${clipId})`).selectAll("g").data(annotations).join("g");
   const line = annotation.append("line").attr("x1", marginLeft).attr("stroke", (d) => d.color ?? "currentColor").attr("stroke-dasharray", (d) => d.dash ?? "4 3");
-  const label = annotation.append("text").attr("y", (d) => -4 + (d.offset?.[1] ?? 0)).attr("text-anchor", (d) => labelAnchor[d.position ?? "right"]).attr("font-size", 11).attr("fill", (d) => d.color ?? "currentColor").attr("stroke", "white").attr("stroke-width", 1.5).attr("paint-order", "stroke").text((d) => d.label ?? "");
+  const label = annotation.append("text").attr("y", (d) => -4 + (d.offset?.[1] ?? 0)).attr("text-anchor", (d) => labelAnchor[d.position ?? "right"]).attr("font-size", 11).attr("fill", (d) => d.color ?? "currentColor").call(haloText).text((d) => d.label ?? "");
   return (y1) => {
     const w = currentWidth();
     const labelX = {
@@ -3610,28 +3632,6 @@ function zoom() {
   };
   return zoom2;
 }
-const haloText = (text, strokeWidth = 4) => text.attr("stroke", "white").attr("stroke-width", strokeWidth).attr("paint-order", "stroke");
-function focusRig(svg, {
-  marginLeft,
-  ruleX2,
-  readoutHost
-}) {
-  const ruleX2Of = typeof ruleX2 === "function" ? ruleX2 : () => ruleX2;
-  const focus = svg.append("g").attr("display", "none").attr("pointer-events", "none");
-  const rule = focus.append("line").attr("x1", marginLeft).attr("x2", ruleX2Of()).attr("stroke", "currentColor").attr("stroke-opacity", 0.3);
-  const readoutGroup = readoutHost ? readoutHost.append("g").attr("display", "none").attr("pointer-events", "none") : focus;
-  const readout = readoutGroup.append("text").attr("x", marginLeft - 8).attr("dy", "0.32em").attr("text-anchor", "end").attr("font-size", 12).attr("font-weight", "bold").attr("fill", "currentColor").call(haloText);
-  const groups = readoutGroup === focus ? [focus] : [focus, readoutGroup];
-  return {
-    focus,
-    readout,
-    show: (ym) => {
-      rule.attr("x2", ruleX2Of());
-      groups.forEach((g) => g.attr("display", null).attr("transform", `translate(0,${ym})`));
-    },
-    hide: () => groups.forEach((g) => g.attr("display", "none"))
-  };
-}
 function makeVerticalScale(fallback, range, limits) {
   const y = linear().domain(limits ?? fallback).range(range);
   if (!limits) {
@@ -3724,7 +3724,7 @@ function boundaryLabels(parent, data, side = "left") {
   const sel = parent.selectAll("g.boundary");
   (typeof data === "function" ? sel.data(data) : sel.data(data)).join((enter) => {
     const g = enter.append("g").attr("class", "boundary");
-    g.append("text").attr("font-size", 10).attr("x", geom.textX).attr("dominant-baseline", "middle").attr("text-anchor", geom.anchor);
+    g.append("text").attr("font-size", 10).attr("x", geom.textX).attr("fill", "currentColor").attr("dominant-baseline", "middle").attr("text-anchor", geom.anchor);
     g.append("path").attr("fill", "none").attr("stroke", "#888").attr("stroke-width", 0.75);
     return g;
   });
@@ -3895,7 +3895,7 @@ const boreholeViewer = {
     const annotations = model.get("annotations") ?? [];
     const width = model.get("width") || 220;
     const height = model.get("height") || 800;
-    const marginLeft = 50;
+    const marginLeft = 70;
     const marginRight = 20;
     const marginTop = 24;
     const marginBottom = 10;

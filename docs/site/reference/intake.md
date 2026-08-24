@@ -5,29 +5,31 @@ sidebar:
   order: 5
 ---
 
-The intake module is the seam between your data source and the widgets'
-wire format. The package never parses file formats, never converts
-units, and never renames columns. Readers — brodata, pygef, python-ags4,
-a CSV reader — stay upstream.
+The intake module sits between your data source and the JSON the
+widgets receive. The package never parses file formats, converts units,
+or renames columns; readers such as brodata, pygef, and python-ags4
+stay upstream.
 [`Channel`](/docs/cpt-anywidget/reference/cpt-viewer/#channel) and
 [`Vertical`](/docs/cpt-anywidget/reference/vertical/#vertical) bindings
 adapt the chart to whatever the columns are called.
 
 The intake enforces only what the front end cannot recover from:
 
-- **JSON safety.** NaN and inf become `None` — NaN is invalid JSON and
-  kills the trait sync. Numpy scalars unwrap to plain Python numbers. A
+- **JSON safety.** NaN and inf become `None`, because NaN is invalid
+  JSON and kills the trait sync. Numpy scalars unwrap to plain Python numbers. A
   non-numeric sample raises immediately, with the column and the value
   named. Nothing is silently coerced.
 - **Equal lengths.** Every column is indexed by the vertical sample
   position. A ragged dict would silently misalign channels, so it
   raises.
-- **Render order.** Rows sort so the first sample is the topmost — the
-  order the front end renders in. Samples without a vertical value
-  cannot be placed and are dropped.
+- **Render order.** Rows sort so the topmost sample comes first,
+  because that is the order the front end renders in. Samples without a
+  vertical value cannot be placed and are dropped.
 
-The viewer constructors call these helpers for you. Call them directly
-to inspect or test the wire format.
+The `CPTViewer` and `ProfileViewer` constructors call these helpers
+for you (a borehole log has no sample columns, so `BoreholeViewer`
+takes its layers as given). Call them directly to inspect or test what
+the widget will receive.
 
 ## tidy
 
@@ -37,13 +39,13 @@ from cpt_anywidget import tidy
 tidy(data, vertical="depth")
 ```
 
-Turns tidy columns into the wire-ready
+Turns tidy columns into the
 [`cptData`](/docs/cpt-anywidget/reference/cpt-viewer/#cptdata--dict)
-dict.
+dict the widget receives.
 
 | Parameter | Type | Description |
 | --- | --- | --- |
-| `data` | DataFrame or dict | A polars or pandas DataFrame, or a dict of equal-length columns: one row per depth sample, one column per measurement. |
+| `data` | DataFrame or dict | A polars or pandas DataFrame, or a dict mapping column names to any equal-length iterables (lists, tuples, numpy arrays): one row per depth sample, one column per measurement. |
 | `vertical` | str, `Vertical`, or dict | The column that places rows on the vertical axis. Rows sort ascending for depth-like coordinates and descending for positive-up ones, so the first sample is the topmost either way. |
 
 Returns exactly what the widget receives: plain lists, JSON-safe
@@ -51,6 +53,9 @@ samples, rows in render order.
 
 Raises `ValueError` when:
 
+- the data object is neither a DataFrame nor a dict of columns
+  (convert to a dict of columns first, for example pyarrow's
+  `.to_pydict()`),
 - a column holds a non-numeric sample (coerce upstream, for example
   `pd.to_numeric(...)` or `.cast(pl.Float64)`),
 - columns differ in length,

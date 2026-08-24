@@ -152,8 +152,12 @@ export function editableColumn({
     .attr("y", plotTop)
     .attr("width", laneWidth)
     .attr("height", plotBottom - plotTop)
-    .attr("fill", "#f6f6f6")
-    .attr("stroke", "#ddd")
+    // grays derived from the inherited text color, not literals, so the
+    // lane reads as a subtle gutter on dark pages too
+    .attr("fill", "currentColor")
+    .attr("fill-opacity", 0.05)
+    .attr("stroke", "currentColor")
+    .attr("stroke-opacity", 0.25)
     .attr("cursor", "pointer");
 
   // previews sit over the hit rect; pointer-events off so they can't
@@ -191,7 +195,7 @@ export function editableColumn({
     }
 
     const merging = target.kind === "merge";
-    const color = merging ? "#c0392b" : "#444";
+    const color = merging ? "#c0392b" : "currentColor";
 
     laneLine
       .attr("display", null)
@@ -250,8 +254,10 @@ export function editableColumn({
     .attr("y", plotTop)
     .attr("width", columnWidth - labelMargin)
     .attr("height", plotBottom - plotTop)
-    .attr("fill", "#fafafa")
-    .attr("stroke", "#bbb")
+    .attr("fill", "currentColor")
+    .attr("fill-opacity", 0.03)
+    .attr("stroke", "currentColor")
+    .attr("stroke-opacity", 0.4)
     .attr("stroke-dasharray", "4,3");
 
   emptyHint
@@ -261,7 +267,8 @@ export function editableColumn({
     .attr("text-anchor", "middle")
     .attr("dy", "0.32em")
     .attr("font-size", 16)
-    .attr("fill", "#888")
+    .attr("fill", "currentColor")
+    .attr("fill-opacity", 0.55)
     .text("+");
 
   emptyHint.append("title").text("Start a first layer spanning the full sounding");

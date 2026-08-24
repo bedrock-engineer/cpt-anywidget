@@ -11,6 +11,8 @@ anchored by its chainage along the profile line. A toolbar toggle
 switches between true-scale spacing and equal spacing. A click selects a
 strip and syncs its name back to Python.
 
+![A ProfileViewer: six CPT strips anchored by chainage on one NAP axis, each with qc and fs curves over an interpretation backdrop, joined by a surface-level overlay](../profile.webp)
+
 ```python
 from cpt_anywidget import ProfileViewer, chainage
 
@@ -36,10 +38,10 @@ pass any trait directly as a keyword argument. Data passed raw via
 | Parameter | Type | Description |
 | --- | --- | --- |
 | `data` | DataFrame or dict | Tidy **long**-format columns: every CPT's samples stacked, with a name column that tells them apart. Rows are grouped per CPT via [`split`](/docs/cpt-anywidget/reference/intake/#split); each group then goes through [`tidy`](/docs/cpt-anywidget/reference/intake/#tidy). |
-| `positions` | dict | `{name: chainage}` in m along the profile line. Every name in `data` must be present; a missing name raises. Omitted: input order, one unit apart — only sensible with equal spacing. See [`chainage`](#chainage). |
+| `positions` | dict | `{name: chainage}` in m along the profile line. Every name in `data` must be present; a missing name raises. When omitted, strips fall in input order, one unit apart, which only makes sense with equal spacing. See [`chainage`](#chainage). |
 | `name` | str | The column that holds the CPT names. Default: `"name"`. |
-| `vertical` | str, `Vertical`, or dict | The vertical-coordinate column. Default: `"nap"` — a profile compares elevations across CPTs. |
-| `channels` | list | The channels every strip plots. Mix column-name strings, [`Channel`](/docs/cpt-anywidget/reference/cpt-viewer/#channel) bindings, and raw dicts. Omitted: cone resistance only. |
+| `vertical` | str, `Vertical`, or dict | The vertical-coordinate column. Default: `"nap"`, because a profile compares elevations across CPTs. |
+| `channels` | list | The channels every strip plots. Mix column-name strings, [`Channel`](/docs/cpt-anywidget/reference/cpt-viewer/#channel) bindings, and raw dicts. When omitted, every strip plots cone resistance only. |
 | `layers` | dict | `{name: [{"top", "bottom", "color"?, "label"?}, ...]}` interpreted layers per CPT, drawn as a backdrop behind the strip's curves. A name absent from `data` raises. |
 | `limits` | dict | `{column: (min, max)}` axis overrides. The plotted channel's pair sets the one scale shared by all strips. |
 | `**kwargs` | | Trait names pass through unchanged. |
@@ -90,10 +92,11 @@ shared by all strips. Key the vertical override by the `verticalKey`.
 
 ### `channels` — list
 
-The channels every strip plots, stacked axis slots in list order. Same
-entry shape as
-[`CPTViewer.channels`](/docs/cpt-anywidget/reference/cpt-viewer/#channels--list).
-An empty list plots cone resistance only.
+The channels every strip plots. Same entry shape as
+[`CPTViewer.channels`](/docs/cpt-anywidget/reference/cpt-viewer/#channels--list),
+except that `side` has no effect here: every axis stacks below the
+plot, one slot per channel in list order. An empty list plots cone
+resistance only.
 
 ### `overlays` — list
 
@@ -146,3 +149,8 @@ Pixels per strip. `0` (the default) falls back to 90.
 The plot size in pixels. `0` falls back to 700×500. Width is a minimum:
 the svg grows past it, and the widget scrolls sideways, whenever
 true-scale chainage or the strip count needs the room.
+
+When the profile scrolls, an overview bar appears above it: one mark
+per strip, and a rectangle showing the visible part. Drag the
+rectangle, or click the track, to navigate. The bar hides again when
+the whole profile fits.

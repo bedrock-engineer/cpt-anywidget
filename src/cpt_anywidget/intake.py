@@ -50,12 +50,20 @@ def _json_safe(key, value):
 def _as_lists(data):
     """DataFrame or mapping → {name: list}, column names stringified.
 
-    A dict of equal-length iterables and a pandas DataFrame both expose
+    A dict of column iterables and a pandas DataFrame both expose
     ``.items()``; a polars DataFrame goes via ``to_dict(as_series=False)``
-    — no dataframe import happens here either way.
+    — no dataframe import happens here either way. Anything else raises
+    with the type named, instead of leaking an AttributeError.
     """
-    if not hasattr(data, "items"):  # polars DataFrame
-        data = data.to_dict(as_series=False)
+    if not hasattr(data, "items"):
+        try:
+            data = data.to_dict(as_series=False)  # polars DataFrame
+        except (AttributeError, TypeError):
+            raise ValueError(
+                f"data must be a polars/pandas DataFrame or a dict of "
+                f"columns, got {type(data).__name__} — convert to a dict "
+                f"of columns first (e.g. pyarrow's .to_pydict())"
+            ) from None
     return {str(k): list(v) for k, v in data.items()}
 
 

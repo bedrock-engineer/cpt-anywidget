@@ -13,3 +13,4 @@ wheels/
 
 # Node
 node_modules/
+.playwright-mcp

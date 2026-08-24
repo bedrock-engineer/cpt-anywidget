@@ -5,12 +5,11 @@ sidebar:
   order: 1
 ---
 
-cpt-anywidget is a set of [anywidget](https://anywidget.dev) viewers for
-cone penetration tests (CPTs) and geotechnical borehole logs. The viewers
-accept CPT data from any source: if you can load it into Python, you can
-plot it. The viewers work in marimo and Jupyter notebooks. All viewers
-share one zoomable vertical axis. The axis shows depth below surface, or
-elevation in m NAP.
+[cpt-anywidget](https://github.com/bedrock-engineer/cpt-anywidget) is a set of [anywidget](https://anywidget.dev) viewers for
+cone penetration tests (CPTs) and geotechnical borehole logs, for [marimo](https://marimo.io/)
+and Jupyter notebooks. The viewers accept data from any source and share one zoomable
+vertical axis, showing either depth below surface or elevation in a
+vertical datum.
 
 The package contains three viewers:
 
@@ -22,6 +21,22 @@ The package contains three viewers:
 - [`BoreholeViewer`](/docs/cpt-anywidget/reference/borehole-viewer/) shows
   one geotechnical borehole log with soil-composition bands.
 
+![A CPTViewer: qc, fs, Rf and u2 curves with hover readouts and a groundwater-level annotation, two read-only interpretation columns, and an editable layer column](./cpt.webp)
+
+The viewers are not tied to a national standard. The Dutch standards
+appear only as built-in defaults, and each has a generic counterpart:
+
+- The BRO column names (`coneResistance`, `localFriction`, and so on)
+  carry display defaults; a
+  [`Channel`](/docs/cpt-anywidget/reference/cpt-viewer/#channel) binding
+  does the same for any other column name.
+- The `"nap"` key carries axis defaults for the Dutch vertical datum; a
+  [`Vertical`](/docs/cpt-anywidget/reference/vertical/) binding does the
+  same for any other datum.
+- The borehole converters color layers by BRO soil names; the
+  [`layers`](/docs/cpt-anywidget/reference/borehole-viewer/#layers--list)
+  trait itself takes plain dicts from any source, with your own colors.
+
 ## Requirements
 
 - Python 3.10 or newer.
@@ -29,22 +44,20 @@ The package contains three viewers:
 
 ## Install
 
-The package is not on PyPI yet. Install it from git:
+Install [cpt-anywidget](https://pypi.org/project/cpt-anywidget/) from
+PyPI:
 
 ```sh
-uv add "cpt-anywidget @ git+https://github.com/bedrock-engineer/cpt-anywidget"
+uv add cpt-anywidget
 ```
 
-The `bro` extra installs [brodata](https://pypi.org/project/brodata/):
+or with pip: `pip install cpt-anywidget`.
 
-```sh
-uv add "cpt-anywidget[bro] @ git+https://github.com/bedrock-engineer/cpt-anywidget"
-```
+The package has no other dependencies beyond
+[anywidget](https://anywidget.dev) itself. Readers such as brodata or
+pygef are yours to choose and install.
 
-Only `layers_from_bhrgt` and `layers_from_bore` need the `bro` extra.
-The viewers do not need it.
-
-## Show a first CPT
+## Minimal example
 
 Put this code in a notebook cell:
 
@@ -61,30 +74,29 @@ df = pl.DataFrame({
 CPTViewer(df, vertical="depth", channels=["coneResistance", "localFriction"])
 ```
 
-The notebook shows the widget when the cell returns it. The widget plots
-each channel against the shared vertical axis.
+The notebook shows the widget when the cell returns it, with each
+channel plotted against the shared vertical axis.
 
 ## Prepare the data
 
 The `data` argument takes
 [tidy](https://data.europa.eu/apps/data-visualisation-guide/intro-to-tidy-data)
-columns: a polars or pandas DataFrame, or a dict of equal-length lists.
-Each row is one depth sample. Each column is one measurement.
+columns: a polars or pandas DataFrame, or a dict mapping column names
+to any equal-length iterables (lists, tuples, numpy arrays). Each row
+is one depth sample. Each column is one measurement.
 
-The widget does not parse file formats. The widget does not convert
-units. Use a reader to do that upstream — any reader works. Examples:
-[brodata](https://pypi.org/project/brodata/) for Dutch
-[BRO](https://basisregistratieondergrond.nl/) data,
-[pygef](https://pypi.org/project/pygef/) for GEF files,
-[python-ags4](https://pypi.org/project/python-ags4/) for AGS files, or
-plain `polars.read_csv` for a CSV.
+The widgets **never** parse file formats or convert units; that is the
+reader's job, and any reader can work:
 
-Column names are free. The BRO column names get built-in labels, units,
-and colors:
-`coneResistance`, `localFriction`, `frictionRatio`, `porePressureU1`,
-`porePressureU2`, and `inclination`. For a column with a different name,
-pass a [`Channel`](/docs/cpt-anywidget/reference/cpt-viewer/#channel)
-binding:
+- [brodata](https://pypi.org/project/brodata/) for Dutch [BRO](https://basisregistratieondergrond.nl/) data
+- [pygef](https://pypi.org/project/pygef/) for GEF files and also geotechnical BRO XML files
+- [python-ags4](https://pypi.org/project/python-ags4/) for AGS files
+- plain CSV files using `polars.read_csv`
+
+Column names are free to choose. The BRO names (`coneResistance`,
+`localFriction`, `frictionRatio`, `porePressureU1`, `porePressureU2`,
+and `inclination`) come with built-in labels, units, and colors. For a
+column with a different name, pass a [`Channel`](/docs/cpt-anywidget/reference/cpt-viewer/#channel) binding:
 
 ```python
 from cpt_anywidget import Channel
@@ -94,21 +106,32 @@ CPTViewer(df, channels=[Channel("qn", label="qn", unit="MPa", color="tomato")])
 
 ## Select the vertical coordinate
 
-Set `vertical` to the column that holds the vertical coordinate:
+Set `vertical` to the column that holds the vertical coordinate. A
+vertical coordinate is one of two kinds:
 
-- `"depth"` is depth below surface, in m, positive down.
-- `"nap"` is elevation in m NAP, positive up. Compute it as the surface
-  elevation minus the depth.
+- a depth below surface, in m, positive down
+- an elevation in a vertical datum, in m, positive up: the surface
+  elevation minus the depth
 
-For a different datum, pass a
-[`Vertical`](/docs/cpt-anywidget/reference/vertical/) binding.
+Any column can be the vertical coordinate once you bind it with a
+[`Vertical`](/docs/cpt-anywidget/reference/vertical/):
+
+```python
+from cpt_anywidget import Vertical
+
+CPTViewer(df, vertical=Vertical("elevation", label="TAW [m]", up=True))
+```
+
+The names `"depth"` and `"nap"` (elevation in the Dutch datum) carry
+built-in labels and formats, the same way the BRO channel names do, so
+they work as plain strings.
 
 ## Use the viewer
 
-- To zoom the vertical axis, hold the Ctrl key (Cmd on macOS) and turn
-  the mouse wheel. A trackpad pinch also zooms.
+- To zoom the vertical axis, hold the <kbd>Ctrl</kbd> key (<kbd>Cmd</kbd> on macOS) and turn
+  the mouse wheel. A trackpad or touch device pinch also zooms, without pressing any keys.
 - To pan a zoomed axis, drag in the plot area.
-- To zoom to a range, hold the Shift key and drag along the axis.
+- To zoom to a range, hold the <kbd>Shift</kbd> key and drag along the axis.
 - To reset the zoom, double-click in the plot area.
 - To read the values at a depth, move the pointer across the plot.
 
@@ -117,13 +140,15 @@ chart.
 
 ## Next steps
 
-- [`CPTViewer` reference](/docs/cpt-anywidget/reference/cpt-viewer/) —
-  all traits: annotations, overlays, interpretations, the borehole
-  column, and the editable layer column.
-- [`ProfileViewer` reference](/docs/cpt-anywidget/reference/profile-viewer/)
-  — build a cross-section from many CPTs.
-- [`BoreholeViewer` reference](/docs/cpt-anywidget/reference/borehole-viewer/)
-  — show a borehole log from any source, with converters for BRO BHR-GT
+- [Edit layers](/docs/cpt-anywidget/edit-layers/): draw a layer
+  interpretation in the widget and read it back in Python.
+- [`CPTViewer` reference](/docs/cpt-anywidget/reference/cpt-viewer/):
+  all traits, including annotations, overlays, interpretations, the
+  borehole column, and the editable layer column.
+- [`ProfileViewer` reference](/docs/cpt-anywidget/reference/profile-viewer/):
+  build a cross-section from many CPTs.
+- [`BoreholeViewer` reference](/docs/cpt-anywidget/reference/borehole-viewer/):
+  show a borehole log from any source, with converters for BRO BHR-GT
   and GEF files.
-- [Data intake reference](/docs/cpt-anywidget/reference/intake/) — the
+- [Data intake reference](/docs/cpt-anywidget/reference/intake/): the
   exact data contract, and the `tidy` and `split` helpers.

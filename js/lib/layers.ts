@@ -1,4 +1,5 @@
 import { select } from "./d3";
+import { haloText } from "./focus-rig";
 import { dodgeLabels } from "./label-dodge";
 import type { AnySelection, Band, Layer, VerticalScale } from "./types";
 
@@ -80,7 +81,9 @@ export function layerRenderer({
         g.append("rect")
           .attr("x", labelMargin)
           .attr("width", columnWidth - labelMargin)
-          .attr("stroke", "white");
+          // Canvas: separator hairlines in the page background color,
+          // dark-page aware like the haloText backdrop
+          .style("stroke", "Canvas");
 
         g.append("text")
           .attr("class", "soil-label")
@@ -89,9 +92,7 @@ export function layerRenderer({
           .attr("text-anchor", "middle")
           .attr("font-size", 10)
           .attr("fill", "#333")
-          .attr("stroke", "white")
-          .attr("stroke-width", 1.5)
-          .attr("paint-order", "stroke");
+          .call(haloText);
 
         g.append("title");
 
@@ -126,7 +127,7 @@ export function layerRenderer({
       .attr("class", "band")
       .call(bandX)
       .attr("fill", (b) => b.color)
-      .attr("stroke", "white")
+      .style("stroke", "Canvas")
       .attr("stroke-width", 0.5);
 
     layerGroup
@@ -178,6 +179,7 @@ export function boundaryLabels(
     g.append("text")
       .attr("font-size", 10)
       .attr("x", geom.textX)
+      .attr("fill", "currentColor")
       .attr("dominant-baseline", "middle")
       .attr("text-anchor", geom.anchor);
 

@@ -4,6 +4,7 @@ import anywidget
 import traitlets
 
 from cpt_anywidget.intake import _normalize_traits
+from cpt_anywidget.lithology import BRO_LITHOLOGY
 from cpt_anywidget.vertical import to_vertical
 
 _HERE = pathlib.Path(__file__).parent
@@ -12,26 +13,17 @@ _HERE = pathlib.Path(__file__).parent
 _FALLBACK_COLOR = "#b0b0b0"
 
 
-def _hex(color):
-    r, g, b = (round(c * 255) for c in color)
-    return f"#{r:02x}{g:02x}{b:02x}"
-
-
-def _soil_name_bands(soil_name, table):
+def _soil_name_bands(soil_name):
     """Proportional soil-composition bands for a BRO geotechnical soil
-    name, looked up in brodata's BRO lithology table; a gray full-width
-    band for names the table doesn't know."""
-    spec = table.get(soil_name)
+    name, looked up in the vendored BRO lithology table; a gray
+    full-width band for names the table doesn't know."""
+    spec = BRO_LITHOLOGY.get(soil_name)
     if spec is None:
         return [{"x1": 0, "x2": 1, "color": _FALLBACK_COLOR}]
-    # base lithologies are a single dict, composites a list of
-    # {"width", "color", "hatch"?} sub-bands stacking to <= 1
-    if isinstance(spec, dict):
-        spec = [{"width": 1, **spec}]
     bands = []
     x = 0.0
     for sub in spec:
-        band = {"x1": x, "x2": x + sub["width"], "color": _hex(sub["color"])}
+        band = {"x1": x, "x2": x + sub["width"], "color": sub["color"]}
         if "hatch" in sub:
             band["hatch"] = sub["hatch"]
         x = band["x2"]
@@ -47,14 +39,11 @@ def layers_from_bhrgt(bhrgt, vertical_key="depth"):
     "bands"}`` with top/bottom in the requested vertical coordinate
     (``"depth"`` below surface, or a positive-up one like ``"nap"``
     via the borehole's offset).
-    Bands are the proportional soil-composition sub-bands from brodata's
-    BRO lithology table: ``{"x1", "x2", "color", "hatch"?}`` with x in
-    [0, 1] and hatch a matplotlib-style pattern char ("-", "/", "\\\\",
-    ".", "o", "|") the front end maps to an SVG pattern.
+    Bands are the proportional soil-composition sub-bands from the
+    vendored BRO lithology table: ``{"x1", "x2", "color", "hatch"?}``
+    with x in [0, 1] and hatch a matplotlib-style pattern char ("-",
+    "/", "\\\\", ".", "o", "|") the front end maps to an SVG pattern.
     """
-    from brodata.plot import get_bro_lithology_properties
-
-    table = get_bro_lithology_properties()
     # BRO XML does not guarantee layer order; the front end expects the
     # shallowest layer first
     df = bhrgt.descriptiveBoreholeLog[0]["layer"].sort_values("upperBoundary")
@@ -66,7 +55,7 @@ def layers_from_bhrgt(bhrgt, vertical_key="depth"):
                 "top": to_vertical(row.upperBoundary, bhrgt.offset, vertical_key),
                 "bottom": to_vertical(row.lowerBoundary, bhrgt.offset, vertical_key),
                 "label": row.geotechnicalSoilName,
-                "bands": _soil_name_bands(row.geotechnicalSoilName, table),
+                "bands": _soil_name_bands(row.geotechnicalSoilName),
             }
         )
     return layers
@@ -78,14 +67,10 @@ def layers_from_bore(bore, vertical_key="depth"):
 
     pygef normalizes both formats to BRO geotechnical soil names, so the
     layers get the same lithology colors and hatches as
-    :func:`layers_from_bhrgt` — same output contract, see there. Needs
-    brodata (the ``bro`` extra) for the lithology table. ``"nap"`` (any
-    positive-up vertical) uses the bore's delivered vertical position
-    offset.
+    :func:`layers_from_bhrgt` — same output contract, see there.
+    ``"nap"`` (any positive-up vertical) uses the bore's delivered
+    vertical position offset.
     """
-    from brodata.plot import get_bro_lithology_properties
-
-    table = get_bro_lithology_properties()
     offset = bore.delivered_vertical_position_offset
 
     layers = []
@@ -95,7 +80,7 @@ def layers_from_bore(bore, vertical_key="depth"):
             "top": to_vertical(row["upperBoundary"], offset, vertical_key),
             "bottom": to_vertical(row["lowerBoundary"], offset, vertical_key),
             "label": row["geotechnicalSoilName"],
-            "bands": _soil_name_bands(row["geotechnicalSoilName"], table),
+            "bands": _soil_name_bands(row["geotechnicalSoilName"]),
         }
         # the field description ("remarks" is an optional BoreData
         # column) shows in the hover readout

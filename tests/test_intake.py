@@ -48,6 +48,17 @@ def test_missing_vertical_column_lists_the_columns():
         tidy({"depth": [0.0], "qc": [1.0]}, "nap")
 
 
+def test_columns_take_any_iterable():
+    np = pytest.importorskip("numpy")
+    out = tidy({"depth": (0.0, 1.0), "qc": np.array([1.0, 2.0])})
+    assert out == {"depth": [0.0, 1.0], "qc": [1.0, 2.0]}
+
+
+def test_unrecognized_data_object_names_the_type():
+    with pytest.raises(ValueError, match=r"got object.*dict of columns"):
+        tidy(object())
+
+
 def test_numpy_scalars_unwrap():
     np = pytest.importorskip("numpy")
     out = tidy({"depth": [np.float64(0.0)], "qc": [np.int32(3)]})

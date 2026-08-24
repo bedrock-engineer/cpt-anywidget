@@ -39,11 +39,6 @@ dependencies = [
 Documentation = "https://bedrock.engineer/docs/cpt-anywidget"
 Repository = "https://github.com/bedrock-engineer/cpt-anywidget"
 
-[project.optional-dependencies]
-# layers_from_bhrgt reads brodata's BHR-GT objects; the viewers themselves
-# don't need it
-bro = ["brodata>=0.1.8"]
-
 [dependency-groups]
 dev = [
     "anywidget[dev]>=0.11.0",

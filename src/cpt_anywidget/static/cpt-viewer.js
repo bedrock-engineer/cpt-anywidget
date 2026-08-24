@@ -4504,6 +4504,28 @@ function cptChart(svg, {
     place
   };
 }
+const haloText = (text, strokeWidth = 1.5) => text.style("stroke", "Canvas").attr("stroke-width", strokeWidth).attr("paint-order", "stroke");
+function focusRig(svg, {
+  marginLeft,
+  ruleX2,
+  readoutHost
+}) {
+  const ruleX2Of = typeof ruleX2 === "function" ? ruleX2 : () => ruleX2;
+  const focus = svg.append("g").attr("display", "none").attr("pointer-events", "none");
+  const rule = focus.append("line").attr("x1", marginLeft).attr("x2", ruleX2Of()).attr("stroke", "currentColor").attr("stroke-opacity", 0.3);
+  const readoutGroup = readoutHost ? readoutHost.append("g").attr("display", "none").attr("pointer-events", "none") : focus;
+  const readout = readoutGroup.append("text").attr("x", marginLeft - 8).attr("dy", "0.32em").attr("text-anchor", "end").attr("font-size", 12).attr("font-weight", "bold").attr("fill", "currentColor").call(haloText);
+  const groups = readoutGroup === focus ? [focus] : [focus, readoutGroup];
+  return {
+    focus,
+    readout,
+    show: (ym) => {
+      rule.attr("x2", ruleX2Of());
+      groups.forEach((g) => g.attr("display", null).attr("transform", `translate(0,${ym})`));
+    },
+    hide: () => groups.forEach((g) => g.attr("display", "none"))
+  };
+}
 function dodgeLabels(anchors, separation, extent2) {
   const placed = Array.from({ length: anchors.length }, () => 0);
   if (anchors.length === 0) {
@@ -4565,8 +4587,8 @@ function layerRenderer({
   return (parent, layers) => {
     const layerGroup = parent.selectAll("g.layer").data(layers).join((enter) => {
       const g = enter.append("g").attr("class", "layer");
-      g.append("rect").attr("x", labelMargin).attr("width", columnWidth - labelMargin).attr("stroke", "white");
-      g.append("text").attr("class", "soil-label").attr("x", columnWidth / 2 + labelMargin / 2).attr("dy", "0.32em").attr("text-anchor", "middle").attr("font-size", 10).attr("fill", "#333").attr("stroke", "white").attr("stroke-width", 1.5).attr("paint-order", "stroke");
+      g.append("rect").attr("x", labelMargin).attr("width", columnWidth - labelMargin).style("stroke", "Canvas");
+      g.append("text").attr("class", "soil-label").attr("x", columnWidth / 2 + labelMargin / 2).attr("dy", "0.32em").attr("text-anchor", "middle").attr("font-size", 10).attr("fill", "#333").call(haloText);
       g.append("title");
       return g;
     });
@@ -4576,7 +4598,7 @@ function layerRenderer({
     );
     layerGroup.select("text.soil-label").text((d) => d.bands ? "" : d.label ?? classLabel.get(d.class) ?? d.class ?? "");
     layerGroup.select("title").text((d) => d.bands ? d.label ?? "" : "");
-    layerGroup.selectAll("rect.band").data(bandData).join("rect").attr("class", "band").call(bandX).attr("fill", (b) => b.color).attr("stroke", "white").attr("stroke-width", 0.5);
+    layerGroup.selectAll("rect.band").data(bandData).join("rect").attr("class", "band").call(bandX).attr("fill", (b) => b.color).style("stroke", "Canvas").attr("stroke-width", 0.5);
     layerGroup.selectAll("rect.hatch").data((d) => bandData(d).filter((b) => b.hatch)).join("rect").attr("class", "hatch").call(bandX).attr("fill", (b) => `url(#${hatchId.get(b.hatch)})`);
     boundaryLabels(
       parent,
@@ -4596,7 +4618,7 @@ function boundaryLabels(parent, data, side = "left") {
   const sel = parent.selectAll("g.boundary");
   (typeof data === "function" ? sel.data(data) : sel.data(data)).join((enter) => {
     const g = enter.append("g").attr("class", "boundary");
-    g.append("text").attr("font-size", 10).attr("x", geom.textX).attr("dominant-baseline", "middle").attr("text-anchor", geom.anchor);
+    g.append("text").attr("font-size", 10).attr("x", geom.textX).attr("fill", "currentColor").attr("dominant-baseline", "middle").attr("text-anchor", geom.anchor);
     g.append("path").attr("fill", "none").attr("stroke", "#888").attr("stroke-width", 0.75);
     return g;
   });
@@ -4661,7 +4683,7 @@ function annotationLayer(svg, annotations, { clipId, marginLeft, marginRight, wi
   const labelAnchor = { left: "start", center: "middle", right: "end" };
   const annotation = svg.append("g").attr("clip-path", `url(#${clipId})`).selectAll("g").data(annotations).join("g");
   const line2 = annotation.append("line").attr("x1", marginLeft).attr("stroke", (d) => d.color ?? "currentColor").attr("stroke-dasharray", (d) => d.dash ?? "4 3");
-  const label = annotation.append("text").attr("y", (d) => -4 + (d.offset?.[1] ?? 0)).attr("text-anchor", (d) => labelAnchor[d.position ?? "right"]).attr("font-size", 11).attr("fill", (d) => d.color ?? "currentColor").attr("stroke", "white").attr("stroke-width", 1.5).attr("paint-order", "stroke").text((d) => d.label ?? "");
+  const label = annotation.append("text").attr("y", (d) => -4 + (d.offset?.[1] ?? 0)).attr("text-anchor", (d) => labelAnchor[d.position ?? "right"]).attr("font-size", 11).attr("fill", (d) => d.color ?? "currentColor").call(haloText).text((d) => d.label ?? "");
   return (y1) => {
     const w = currentWidth();
     const labelX = {
@@ -4687,28 +4709,6 @@ function overlayLayer(svg, overlays, { seriesByKey, clipId }) {
   };
   const paths = svg.append("g").attr("clip-path", `url(#${clipId})`).selectAll("path").data(overlays).join("path").attr("fill", "none").attr("stroke", (o) => o.color ?? "currentColor").attr("stroke-width", (o) => o.width ?? 1.5).attr("stroke-dasharray", (o) => o.dash ?? "6 4");
   return (y1) => paths.attr("d", (o) => overlayPath(o, y1));
-}
-const haloText = (text, strokeWidth = 4) => text.attr("stroke", "white").attr("stroke-width", strokeWidth).attr("paint-order", "stroke");
-function focusRig(svg, {
-  marginLeft,
-  ruleX2,
-  readoutHost
-}) {
-  const ruleX2Of = typeof ruleX2 === "function" ? ruleX2 : () => ruleX2;
-  const focus = svg.append("g").attr("display", "none").attr("pointer-events", "none");
-  const rule = focus.append("line").attr("x1", marginLeft).attr("x2", ruleX2Of()).attr("stroke", "currentColor").attr("stroke-opacity", 0.3);
-  const readoutGroup = readoutHost ? readoutHost.append("g").attr("display", "none").attr("pointer-events", "none") : focus;
-  const readout = readoutGroup.append("text").attr("x", marginLeft - 8).attr("dy", "0.32em").attr("text-anchor", "end").attr("font-size", 12).attr("font-weight", "bold").attr("fill", "currentColor").call(haloText);
-  const groups = readoutGroup === focus ? [focus] : [focus, readoutGroup];
-  return {
-    focus,
-    readout,
-    show: (ym) => {
-      rule.attr("x2", ruleX2Of());
-      groups.forEach((g) => g.attr("display", null).attr("transform", `translate(0,${ym})`));
-    },
-    hide: () => groups.forEach((g) => g.attr("display", "none"))
-  };
 }
 function crosshair(svg, {
   series,
@@ -5067,7 +5067,7 @@ function editableColumn({
     (enter) => enter.append("rect").attr("class", "handle").attr("x", 0).attr("width", columnWidth).attr("height", 9).attr("fill", "transparent").attr("cursor", "ns-resize").call(dragHandler)
   );
   const laneX = columnWidth + laneGap;
-  const laneHit = laneG.append("rect").attr("x", laneX).attr("y", plotTop).attr("width", laneWidth).attr("height", plotBottom - plotTop).attr("fill", "#f6f6f6").attr("stroke", "#ddd").attr("cursor", "pointer");
+  const laneHit = laneG.append("rect").attr("x", laneX).attr("y", plotTop).attr("width", laneWidth).attr("height", plotBottom - plotTop).attr("fill", "currentColor").attr("fill-opacity", 0.05).attr("stroke", "currentColor").attr("stroke-opacity", 0.25).attr("cursor", "pointer");
   const laneLine = laneG.append("line").attr("x1", labelMargin).attr("x2", laneX + laneWidth).attr("stroke-width", 1.5).attr("pointer-events", "none").attr("display", "none");
   const laneGlyph = laneG.append("text").attr("x", laneX + laneWidth / 2).attr("text-anchor", "middle").attr("dy", "0.32em").attr("font-size", 12).attr("font-weight", "bold").attr("pointer-events", "none").attr("display", "none");
   const hideLanePreview = () => {
@@ -5081,7 +5081,7 @@ function editableColumn({
       return;
     }
     const merging = target.kind === "merge";
-    const color2 = merging ? "#c0392b" : "#444";
+    const color2 = merging ? "#c0392b" : "currentColor";
     laneLine.attr("display", null).attr("y1", target.at).attr("y2", target.at).attr("stroke", color2).attr("stroke-dasharray", merging ? null : "4,3");
     laneGlyph.attr("display", null).attr("y", target.at).attr("fill", color2).text(merging ? "×" : "+");
   };
@@ -5102,8 +5102,8 @@ function editableColumn({
     previewLane(py);
   });
   const emptyHint = laneG.append("g").attr("cursor", "pointer");
-  emptyHint.append("rect").attr("x", labelMargin).attr("y", plotTop).attr("width", columnWidth - labelMargin).attr("height", plotBottom - plotTop).attr("fill", "#fafafa").attr("stroke", "#bbb").attr("stroke-dasharray", "4,3");
-  emptyHint.append("text").attr("x", labelMargin + (columnWidth - labelMargin) / 2).attr("y", (plotTop + plotBottom) / 2).attr("text-anchor", "middle").attr("dy", "0.32em").attr("font-size", 16).attr("fill", "#888").text("+");
+  emptyHint.append("rect").attr("x", labelMargin).attr("y", plotTop).attr("width", columnWidth - labelMargin).attr("height", plotBottom - plotTop).attr("fill", "currentColor").attr("fill-opacity", 0.03).attr("stroke", "currentColor").attr("stroke-opacity", 0.4).attr("stroke-dasharray", "4,3");
+  emptyHint.append("text").attr("x", labelMargin + (columnWidth - labelMargin) / 2).attr("y", (plotTop + plotBottom) / 2).attr("text-anchor", "middle").attr("dy", "0.32em").attr("font-size", 16).attr("fill", "currentColor").attr("fill-opacity", 0.55).text("+");
   emptyHint.append("title").text("Start a first layer spanning the full sounding");
   emptyHint.on("click", () => {
     layers = seedLayer(verticalExtent[0], verticalExtent[1]);
