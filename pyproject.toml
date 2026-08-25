@@ -1,6 +1,6 @@
 [project]
 name = "cpt-anywidget"
-version = "0.2.0"
+version = "0.2.1"
 description = "anywidget viewers for CPT soundings and geotechnical boreholes"
 readme = "README.md"
 authors = [{ name = "Jules Blom @ Bedrock Technologies B.V." }]
