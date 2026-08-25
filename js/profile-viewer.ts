@@ -83,9 +83,12 @@ export default {
 
     // every strip plots the same channels (qc by default); the
     // spec/defaults contract matches the interpretation widget's
-    // channels entries. Each channel gets one scale shared across every
-    // strip, in strip-local px — comparing strips is the point, so the
-    // x domains must agree per channel. Channels without data drop out
+    // channels entries, including the side: a top channel (Rf, incl)
+    // runs right-to-left like in the cpt chart, so the same curve never
+    // reads mirrored between the two widgets. Each channel gets one
+    // scale shared across every strip, in strip-local px — comparing
+    // strips is the point, so the x domains must agree per channel.
+    // Channels without data drop out
     const requested: (string | ChannelSpec)[] = model.get("channels") ?? [];
     const series = (requested.length ? requested : ["coneResistance"])
       .map((c, i) => {
@@ -94,7 +97,7 @@ export default {
           ...merged,
           x: makeXScale(
             cpts.flatMap((cpt) => cpt.data[merged.key] ?? []),
-            [0, stripWidth],
+            merged.side === "top" ? [stripWidth, 0] : [0, stripWidth],
             axisLimits[merged.key],
           ),
         };
@@ -113,11 +116,25 @@ export default {
     // bold 12px) left of the axis — 50 clipped it at the svg edge
     const marginLeft = 70;
     const marginRight = 40; // room for the right vertical axis labels
-    const marginTop = 28;
-    // room under the plot for the per-strip channel axes — one slot per
+    // the axes stack per side like the cpt chart: bottom channels below
+    // the strips, top channels above them; the strip name labels keep
+    // the top band above the top axis stack
+    const bottomSeries = series.filter((s) => s.side === "bottom");
+    const topSeries = series.filter((s) => s.side === "top");
+    const nameBand = 28;
+    const marginTop = nameBand + axisSlot * topSeries.length;
+    // room under the plot for the bottom channel axes — one slot per
     // channel, stacked in list order — + the chainage axis
-    const marginBottom = 62 + axisSlot * (series.length - 1);
+    const bottomSlots = Math.max(bottomSeries.length - 1, 0);
+    const marginBottom = 62 + axisSlot * bottomSlots;
     const yBottom = height - marginBottom;
+
+    // slot line for one channel axis: bottom channels stack downward
+    // from the plot's bottom edge, top channels upward from its top edge
+    const slotY = (s: (typeof series)[number]) =>
+      s.side === "top"
+        ? marginTop - axisSlot * topSeries.indexOf(s)
+        : yBottom + axisSlot * bottomSeries.indexOf(s);
 
     // vertical direction follows the data order like the other widgets:
     // the first sample renders at the top (the facade sorts elevations
@@ -343,8 +360,8 @@ export default {
       .join("text")
       .attr("class", "channel-label")
       .attr("x", 0)
-      .attr("y", (_, i) => yBottom + axisSlot * i + 9)
-      .attr("dy", "0.71em")
+      .attr("y", (s) => slotY(s) + (s.side === "top" ? -9 : 9))
+      .attr("dy", (s) => (s.side === "top" ? "0em" : "0.71em"))
       .attr("text-anchor", "start")
       .attr("font-size", 10)
       .attr("font-weight", "bold")
@@ -353,7 +370,7 @@ export default {
 
     // chainage axis under the strip axes: honest meters in true scale;
     // equal-spaced mode instead ticks each strip anchor with its chainage
-    const chainY = yBottom + axisSlot * (series.length - 1) + 32;
+    const chainY = yBottom + axisSlot * bottomSlots + 32;
     const gChain = svg.append("g").attr("transform", `translate(0,${chainY})`);
 
     // dual-mode: honest meter axis in true scale, per-dijkpaal labels
@@ -423,7 +440,7 @@ export default {
       .data(() => series)
       .join("g")
       .attr("class", "channel-axis")
-      .attr("transform", (_, i) => `translate(0,${yBottom + axisSlot * i})`)
+      .attr("transform", (s) => `translate(0,${slotY(s)})`)
       .each(function (s) {
         d3.select(this).call(channelAxis, s, {
           ticks: Math.max(2, stripWidth / 45),
@@ -445,7 +462,7 @@ export default {
       .append("text")
       .attr("class", "name")
       .attr("x", stripWidth / 2)
-      .attr("y", marginTop - 8)
+      .attr("y", nameBand - 8)
       .attr("text-anchor", "middle")
       .attr("font-size", 11)
       .text((d) => d.name);
@@ -673,7 +690,7 @@ export default {
     // labels; clicking the selected strip again deselects
     svg.on("click", (event: MouseEvent) => {
       const [px, py] = d3.pointer(event);
-      if (py < marginTop - 20 || py > yBottom) {
+      if (py < nameBand - 20 || py > yBottom) {
         return;
       }
       const i = stripIndexAt(px);

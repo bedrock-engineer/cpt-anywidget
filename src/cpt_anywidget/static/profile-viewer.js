@@ -4427,7 +4427,7 @@ const profileViewer = {
         ...merged,
         x: makeXScale(
           cpts.flatMap((cpt) => cpt.data[merged.key] ?? []),
-          [0, stripWidth],
+          merged.side === "top" ? [stripWidth, 0] : [0, stripWidth],
           axisLimits[merged.key]
         )
       };
@@ -4440,9 +4440,14 @@ const profileViewer = {
     }
     const marginLeft = 70;
     const marginRight = 40;
-    const marginTop = 28;
-    const marginBottom = 62 + axisSlot * (series.length - 1);
+    const bottomSeries = series.filter((s) => s.side === "bottom");
+    const topSeries = series.filter((s) => s.side === "top");
+    const nameBand = 28;
+    const marginTop = nameBand + axisSlot * topSeries.length;
+    const bottomSlots = Math.max(bottomSeries.length - 1, 0);
+    const marginBottom = 62 + axisSlot * bottomSlots;
     const yBottom = height - marginBottom;
+    const slotY = (s) => s.side === "top" ? marginTop - axisSlot * topSeries.indexOf(s) : yBottom + axisSlot * bottomSeries.indexOf(s);
     const ordered = cpts.map(vertOf).find((v) => v.filter((s) => s != null).length >= 2);
     let descending2 = vert.up;
     if (ordered) {
@@ -4532,8 +4537,8 @@ const profileViewer = {
     verticalAxisTitle(svg, vert.label);
     verticalAxisTitle(pinnedLeft, vert.label);
     pinnedLeft.selectAll("text").call(haloText);
-    svg.selectAll("text.channel-label").data(series).join("text").attr("class", "channel-label").attr("x", 0).attr("y", (_, i) => yBottom + axisSlot * i + 9).attr("dy", "0.71em").attr("text-anchor", "start").attr("font-size", 10).attr("font-weight", "bold").attr("fill", (s) => s.color).text(channelTitle);
-    const chainY = yBottom + axisSlot * (series.length - 1) + 32;
+    svg.selectAll("text.channel-label").data(series).join("text").attr("class", "channel-label").attr("x", 0).attr("y", (s) => slotY(s) + (s.side === "top" ? -9 : 9)).attr("dy", (s) => s.side === "top" ? "0em" : "0.71em").attr("text-anchor", "start").attr("font-size", 10).attr("font-weight", "bold").attr("fill", (s) => s.color).text(channelTitle);
+    const chainY = yBottom + axisSlot * bottomSlots + 32;
     const gChain = svg.append("g").attr("transform", `translate(0,${chainY})`);
     const chainageAxis = chainageAxisFor(layout);
     gChain.call(chainageAxis);
@@ -4544,14 +4549,14 @@ const profileViewer = {
     const stripLayer = strip.append("g").attr("clip-path", `url(#${stripClipId})`).selectAll("rect").data((c) => c.layers ?? []).join("rect").attr("x", 0).attr("width", stripWidth).attr("fill", (l) => l.color ?? "#999").attr("fill-opacity", 0.8).style("stroke", "Canvas").attr("stroke-width", 0.5);
     const placeLayers = (y1) => stripLayer.attr("y", (l) => Math.min(y1(l.top), y1(l.bottom))).attr("height", (l) => Math.abs(y1(l.bottom) - y1(l.top)));
     strip.append("rect").attr("class", "frame").attr("x", 0).attr("y", marginTop).attr("width", stripWidth).attr("height", yBottom - marginTop).attr("fill", "transparent");
-    strip.selectAll("g.channel-axis").data(() => series).join("g").attr("class", "channel-axis").attr("transform", (_, i) => `translate(0,${yBottom + axisSlot * i})`).each(function(s) {
+    strip.selectAll("g.channel-axis").data(() => series).join("g").attr("class", "channel-axis").attr("transform", (s) => `translate(0,${slotY(s)})`).each(function(s) {
       select(this).call(channelAxis, s, {
         ticks: Math.max(2, stripWidth / 45),
         tickSizeOuter: 0
       });
     });
     const stripPath = strip.append("g").attr("clip-path", `url(#${stripClipId})`).selectAll("path").data((c) => series.map((s) => ({ c, s }))).join("path").attr("fill", "none").attr("stroke", ({ s }) => s.color).attr("stroke-width", 1);
-    const stripName = strip.append("text").attr("class", "name").attr("x", stripWidth / 2).attr("y", marginTop - 8).attr("text-anchor", "middle").attr("font-size", 11).text((d) => d.name);
+    const stripName = strip.append("text").attr("class", "name").attr("x", stripWidth / 2).attr("y", nameBand - 8).attr("text-anchor", "middle").attr("font-size", 11).text((d) => d.name);
     const tracePath = (c, s, y1) => {
       const values = c.data[s.key] ?? [];
       const vertical = vertOf(c);
@@ -4661,7 +4666,7 @@ const profileViewer = {
     });
     svg.on("click", (event) => {
       const [px, py] = pointer(event);
-      if (py < marginTop - 20 || py > yBottom) {
+      if (py < nameBand - 20 || py > yBottom) {
         return;
       }
       const i = stripIndexAt(px);

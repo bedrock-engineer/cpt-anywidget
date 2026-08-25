@@ -65,7 +65,7 @@ gestures.
 ### Zoom and pan — all viewers
 
 - To zoom the vertical axis, hold the <kbd>Ctrl</kbd> key (<kbd>Cmd</kbd> on macOS) and turn
-  the mouse wheel. Pinching on a trackpad or touch device also zooms.
+  the mouse wheel. Pinching on a trackpad or touch device zooms too, without keys.
 - To pan a zoomed axis, drag in the plot area.
 - To zoom to a range, hold the Shift key and drag along the axis.
 - To reset the zoom, double-click in the plot area.

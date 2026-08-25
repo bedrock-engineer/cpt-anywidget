@@ -388,7 +388,8 @@ def _(cpt, to_vertical, vertical_select):
 
 @app.cell
 def _(at, cpt_interps):
-    # layer boundaries converted to the selected vertical coordinate
+    # layer boundaries converted to the selected vertical coordinate;
+    # only the Robertson column shows in the viewer
     interpretations = [
         {
             "label": col["label"],
@@ -398,6 +399,7 @@ def _(at, cpt_interps):
             ],
         }
         for col in cpt_interps
+        if col["label"] == "Robertson"
     ]
     return (interpretations,)
 
@@ -663,7 +665,7 @@ def _(
     profile = ProfileViewer(
         profile_data,
         positions=profile_positions,
-        channels=["coneResistance", "localFriction"],
+        channels=["coneResistance", "localFriction", "frictionRatio"],
         layers=profile_layers,
         overlays=[
             {"levels": surface_levels, "label": "maaiveld", "color": "#8a6642"}
