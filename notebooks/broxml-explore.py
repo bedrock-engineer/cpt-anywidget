@@ -204,6 +204,7 @@ def _(mo):
         options={"depth below surface": "depth", "m NAP": "nap"},
         value="depth below surface",
         label="vertical axis",
+        inline=True
     )
     vertical_select
     return (vertical_select,)
@@ -230,15 +231,6 @@ def _(mo):
     walk them with the **arrow keys** and commit with **Enter**.
     """)
     return
-
-
-@app.cell
-def _(mo):
-    # groundwater level (m below surface), shared by the GWL annotation
-    # and the hydrostatic overlay
-    gwl_slider = mo.ui.slider(start=0, stop=10, value=6.9, show_value=True, step=0.1)
-    gwl_slider
-    return (gwl_slider,)
 
 
 @app.cell
@@ -272,6 +264,21 @@ def _(cpt_interps, mo):
     )
     seed_select
     return (seed_select,)
+
+
+@app.cell
+def _(cpt):
+    init_gwl = float(cpt.groundwaterLevel)
+    return (init_gwl,)
+
+
+@app.cell
+def _(init_gwl, mo):
+    # groundwater level (m below surface), shared by the GWL annotation
+    # and the hydrostatic overlay
+    gwl_slider = mo.ui.slider(start=0, stop=10, value=init_gwl, show_value=True, step=0.1)
+    gwl_slider
+    return (gwl_slider,)
 
 
 @app.cell(hide_code=True)

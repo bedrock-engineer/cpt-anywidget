@@ -25,7 +25,6 @@ export function annotationLayer(
 
   const annotation = svg
     .append("g")
-    .attr("clip-path", `url(#${clipId})`)
     .selectAll<SVGGElement, Annotation>("g")
     .data(annotations)
     .join("g");
