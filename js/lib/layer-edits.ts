@@ -24,6 +24,14 @@ export function seedLayer(top: number, bottom: number): Layer[] {
   return [{ top, bottom }];
 }
 
+/** replace the stack with a copy of an existing layering (an
+    interpretation column): fresh layer objects so later edits can't
+    mutate the source. Labels/colors carry over as-is; class is left to
+    the pie, since an interpretation's labels aren't palette classes */
+export function seedFrom(source: Layer[]): Layer[] {
+  return source.map((l) => ({ ...l }));
+}
+
 /** move the boundary shared by layers[i] and layers[i + 1] to value,
     clamped so neither neighbour drops below minThickness */
 export function dragBoundary(layers: Layer[], i: number, value: number): Layer[] {

@@ -1,3 +1,13 @@
+/* interpretation column headers: double-click seeds the edit column
+   from that interpretation; the hover hint marks them as actionable */
+.column-header.seedable {
+  cursor: pointer;
+}
+
+.column-header.seedable:hover {
+  text-decoration: underline;
+}
+
 /* class-picker pie for the editable layer column */
 .soil-pie {
   position: absolute;

@@ -23,7 +23,7 @@ function focusRig(svg, {
 function annotationLayer(svg, annotations, { clipId, marginLeft, marginRight, width }) {
   const currentWidth = typeof width === "function" ? width : () => width;
   const labelAnchor = { left: "start", center: "middle", right: "end" };
-  const annotation = svg.append("g").attr("clip-path", `url(#${clipId})`).selectAll("g").data(annotations).join("g");
+  const annotation = svg.append("g").selectAll("g").data(annotations).join("g");
   const line = annotation.append("line").attr("x1", marginLeft).attr("stroke", (d) => d.color ?? "currentColor").attr("stroke-dasharray", (d) => d.dash ?? "4 3");
   const label = annotation.append("text").attr("y", (d) => -4 + (d.offset?.[1] ?? 0)).attr("text-anchor", (d) => labelAnchor[d.position ?? "right"]).attr("font-size", 11).attr("fill", (d) => d.color ?? "currentColor").call(haloText).text((d) => d.label ?? "");
   return (y1) => {
@@ -3640,8 +3640,8 @@ function makeVerticalScale(fallback, range, limits) {
   return y;
 }
 const yAxisFor = (marginLeft, height) => (g, y1) => g.attr("transform", `translate(${marginLeft},0)`).call(axisLeft(y1).ticks(height / 60));
-function verticalAxisTitle(svg, label) {
-  svg.append("text").attr("x", 0).attr("y", 14).attr("fill", "currentColor").attr("text-anchor", "start").attr("font-weight", "bold").text(label);
+function verticalAxisTitle(svg, label, y = 14) {
+  svg.append("text").attr("x", 0).attr("y", y).attr("fill", "currentColor").attr("text-anchor", "start").attr("font-weight", "bold").text(label);
 }
 function plotClip(svg, prefix, { x, y, width, height }) {
   const id2 = `${prefix}-${crypto.randomUUID()}`;
@@ -3663,134 +3663,6 @@ function hatchDefs(svg, chars) {
   svg.append("defs").selectAll("pattern").data(chars).join("pattern").attr("id", (h) => ids.get(h)).attr("width", 6).attr("height", 6).attr("patternUnits", "userSpaceOnUse").html((h) => HATCH_SHAPE[h]);
   return ids;
 }
-function dodgeLabels(anchors, separation, extent2) {
-  const placed = Array.from({ length: anchors.length }, () => 0);
-  if (anchors.length === 0) {
-    return placed;
-  }
-  const centerOf = (cluster) => {
-    const mean = cluster.anchorSum / cluster.size;
-    if (!extent2) {
-      return mean;
-    }
-    const halfSpan = (cluster.size - 1) * separation / 2;
-    return Math.max(Math.min(mean, extent2[1] - halfSpan), extent2[0] + halfSpan);
-  };
-  const firstMemberOf = (cluster) => centerOf(cluster) - (cluster.size - 1) * separation / 2;
-  const lastMemberOf = (cluster) => centerOf(cluster) + (cluster.size - 1) * separation / 2;
-  const clusters = [];
-  anchors.forEach((anchor, index) => {
-    clusters.push({ anchorSum: anchor, size: 1, firstIndex: index });
-    while (clusters.length > 1) {
-      const above = clusters[clusters.length - 2];
-      const below = clusters[clusters.length - 1];
-      const gap = firstMemberOf(below) - lastMemberOf(above);
-      if (gap >= separation - 1e-6) {
-        break;
-      }
-      above.anchorSum += below.anchorSum;
-      above.size += below.size;
-      clusters.pop();
-    }
-  });
-  for (const cluster of clusters) {
-    const center2 = centerOf(cluster);
-    for (let member = 0; member < cluster.size; member++) {
-      placed[cluster.firstIndex + member] = center2 + (member - (cluster.size - 1) / 2) * separation;
-    }
-  }
-  return placed;
-}
-const labelMargin = 28;
-const depthLabelHeight = 12;
-const labelGeometry = {
-  left: {
-    textX: labelMargin - 4,
-    anchor: "end",
-    leaderStart: labelMargin,
-    leaderEnd: labelMargin - 3
-  },
-  right: { textX: 4, anchor: "start", leaderStart: 0, leaderEnd: 3 }
-};
-function boundaryData(layers, format2) {
-  const last = layers[layers.length - 1];
-  return layers.length ? [
-    ...layers.map((l) => ({ layer: l, which: "top", format: format2 })),
-    { layer: last, which: "bottom", format: format2 }
-  ] : [];
-}
-function boundaryLabels(parent, data, side = "left") {
-  const geom = labelGeometry[side];
-  const sel = parent.selectAll("g.boundary");
-  (typeof data === "function" ? sel.data(data) : sel.data(data)).join((enter) => {
-    const g = enter.append("g").attr("class", "boundary");
-    g.append("text").attr("font-size", 10).attr("x", geom.textX).attr("fill", "currentColor").attr("dominant-baseline", "middle").attr("text-anchor", geom.anchor);
-    g.append("path").attr("fill", "none").attr("stroke", "#888").attr("stroke-width", 0.75);
-    return g;
-  });
-}
-function placeDepthLabels(column, y1, side = "left") {
-  const geom = labelGeometry[side];
-  const leaderMidX = (geom.leaderStart + geom.leaderEnd) / 2;
-  const boundarySel = column.selectAll("g.boundary");
-  const nodes = boundarySel.nodes();
-  const data = boundarySel.data();
-  if (!nodes.length) {
-    return;
-  }
-  const [r0, r1] = y1.range();
-  const lo = Math.min(r0, r1);
-  const hi = Math.max(r0, r1);
-  const anchors = data.map((b) => y1(b.layer[b.which]));
-  const visible = [];
-  anchors.forEach((a, i) => {
-    if (a >= lo && a <= hi) {
-      visible.push(i);
-    }
-  });
-  if (visible.length * depthLabelHeight > hi - lo) {
-    boundarySel.attr("display", "none");
-    return;
-  }
-  const placed = dodgeLabels(
-    visible.map((i) => anchors[i]),
-    depthLabelHeight,
-    [lo + depthLabelHeight / 2, hi - depthLabelHeight / 2]
-  );
-  const posByIndex = /* @__PURE__ */ new Map();
-  visible.forEach((bi, j) => posByIndex.set(bi, placed[j]));
-  nodes.forEach((node, i) => {
-    const g = select(node);
-    const p = posByIndex.get(i);
-    if (p === void 0) {
-      g.attr("display", "none");
-      return;
-    }
-    g.attr("display", null);
-    g.select("text").attr("y", p).text(data[i].format(data[i].layer[data[i].which]));
-    const displaced = Math.abs(p - anchors[i]) > 0.5;
-    g.select("path").attr("display", displaced ? null : "none").attr(
-      "d",
-      displaced ? `M${geom.leaderStart},${anchors[i]}C${leaderMidX},${anchors[i]} ${leaderMidX},${p} ${geom.leaderEnd},${p}` : null
-    );
-  });
-}
-const verticalDefaults = {
-  depth: { label: "depth [m]", up: false, format: ".2f" },
-  nap: { label: "NAP [m]", up: true, format: "+.2f" }
-};
-function resolveVertical(raw, fallbackKey) {
-  const spec = !raw ? { key: fallbackKey } : typeof raw === "string" ? { key: raw } : raw;
-  return {
-    label: spec.key,
-    up: false,
-    format: ".2f",
-    ...verticalDefaults[spec.key],
-    ...Object.fromEntries(
-      Object.entries(spec).filter(([, v]) => v != null)
-    )
-  };
-}
 function wrapLines(text, maxChars) {
   const words = text.split(/\s+/).filter(Boolean);
   const lines = [];
@@ -3808,6 +3680,91 @@ function wrapLines(text, maxChars) {
     lines.push(line);
   }
   return lines;
+}
+const labelMargin = 28;
+const depthLabelHeight = 12;
+const labelGeometry = {
+  left: { textX: labelMargin - 4, anchor: "end" },
+  right: { textX: 4, anchor: "start" }
+};
+function boundaryData(layers, format2) {
+  const last = layers[layers.length - 1];
+  return layers.length ? [
+    ...layers.map((l) => ({ layer: l, which: "top", format: format2 })),
+    { layer: last, which: "bottom", format: format2 }
+  ] : [];
+}
+function boundaryLabels(parent, data, side = "left") {
+  const geom = labelGeometry[side];
+  const sel = parent.selectAll("g.boundary");
+  (typeof data === "function" ? sel.data(data) : sel.data(data)).join((enter) => {
+    const g = enter.append("g").attr("class", "boundary");
+    g.append("text").attr("font-size", 10).attr("x", geom.textX).attr("fill", "currentColor").attr("dominant-baseline", "middle").attr("text-anchor", geom.anchor);
+    return g;
+  });
+}
+function placeDepthLabels(column, y1) {
+  const boundarySel = column.selectAll("g.boundary");
+  const nodes = boundarySel.nodes();
+  const data = boundarySel.data();
+  if (!nodes.length) {
+    return;
+  }
+  const [r0, r1] = y1.range();
+  const lo = Math.min(r0, r1);
+  const hi = Math.max(r0, r1);
+  const anchors = data.map((b) => y1(b.layer[b.which]));
+  const visible = [];
+  anchors.forEach((a, i) => {
+    if (a >= lo && a <= hi) {
+      visible.push(i);
+    }
+  });
+  const half = depthLabelHeight / 2;
+  const posOf = (i) => Math.max(lo + half, Math.min(hi - half, anchors[i]));
+  const pxThick = (l) => Math.abs(y1(l.bottom) - y1(l.top));
+  const weightOf = (i) => i === 0 || i === data.length - 1 ? Infinity : Math.max(pxThick(data[i - 1].layer), pxThick(data[i].layer));
+  const order = [...visible].sort((a, b) => weightOf(b) - weightOf(a) || a - b);
+  const kept = /* @__PURE__ */ new Map();
+  for (const i of order) {
+    const p = posOf(i);
+    let clears = true;
+    for (const q of kept.values()) {
+      if (Math.abs(p - q) < depthLabelHeight) {
+        clears = false;
+        break;
+      }
+    }
+    if (clears) {
+      kept.set(i, p);
+    }
+  }
+  nodes.forEach((node, i) => {
+    const g = select(node);
+    const p = kept.get(i);
+    if (p === void 0) {
+      g.attr("display", "none");
+      return;
+    }
+    g.attr("display", null);
+    g.select("text").attr("y", p).text(data[i].format(data[i].layer[data[i].which]));
+  });
+}
+const verticalDefaults = {
+  depth: { label: "depth [m]", up: false, format: ".2f" },
+  nap: { label: "NAP [m]", up: true, format: "+.2f" }
+};
+function resolveVertical(raw, fallbackKey) {
+  const spec = !raw ? { key: fallbackKey } : typeof raw === "string" ? { key: raw } : raw;
+  return {
+    label: spec.key,
+    up: false,
+    format: ".2f",
+    ...verticalDefaults[spec.key],
+    ...Object.fromEntries(
+      Object.entries(spec).filter(([, v]) => v != null)
+    )
+  };
 }
 function verticalZoom() {
   let y;
@@ -3946,7 +3903,7 @@ const boreholeViewer = {
       placeBandRects(bandRect, y1);
       placeBandRects(hatchRect, y1);
       boundaryLine.attr("y1", (b) => y1(b)).attr("y2", (b) => y1(b));
-      placeDepthLabels(gBoundaries, y1, "right");
+      placeDepthLabels(gBoundaries, y1);
       soilLabel.attr("y", (l) => (y1(l.top) + y1(l.bottom)) / 2).attr("display", (l) => Math.abs(y1(l.bottom) - y1(l.top)) >= 14 ? null : "none");
     };
     const placeAnnotations = annotationLayer(svg, annotations, {

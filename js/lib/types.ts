@@ -47,6 +47,22 @@ export interface Borehole {
   layers?: Layer[];
 }
 
+/** one layer column in the slot layout left/right of the plot */
+export interface ColumnSpec {
+  label: string;
+  layers: Layer[];
+  side?: "left";
+  editable?: boolean;
+  gapBefore?: boolean;
+  x?: number;
+}
+
+/** column slot geometry: the fixed slot width and the gap between slots */
+export interface ColumnGeometry {
+  width: number;
+  gap: number;
+}
+
 /** horizontal reference line, e.g. groundwater level */
 export interface Annotation {
   at: number;

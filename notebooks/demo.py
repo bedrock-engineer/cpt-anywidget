@@ -16,15 +16,13 @@
 import marimo
 
 __generated_with = "0.24.0"
-app = marimo.App(width="columns")
+app = marimo.App(width="columns", css_file="demo.css")
 
 
 @app.cell(column=0, hide_code=True)
 def _(mo):
     mo.md("""
     # cpt-anywidget
-
-    Interactive CPT, borehole and profile widgets for Python notebooks.
     """)
     return
 
@@ -35,6 +33,7 @@ def _():
     import pandas as pd
 
     from cpt_anywidget import (
+        CPTLog,
         CPTViewer,
         ProfileViewer,
         chainage,
@@ -55,6 +54,7 @@ def _():
 
     return (
         BroXmlCpt,
+        CPTLog,
         CPTViewer,
         ConePenetrationTest,
         GeotechnicalBoreholeResearch,
@@ -74,17 +74,35 @@ def _():
 
 @app.cell
 def _(ConePenetrationTest, GeotechnicalBoreholeResearch, mo):
-    # one fixed CPT and one fixed geotechnical borehole from the sample data
-    _cpt_files = sorted(
-        (mo.notebook_dir().parent / "examples" / "broxml-cpt").glob("*.xml")
-    )
-    _bhr_files = sorted(
-        (mo.notebook_dir().parent / "examples" / "broxml-bhr-gt").glob("*.xml")
-    )
-    cpt_file = str(_cpt_files[1])
+    # a real CPT + geotechnical borehole that sit close together
+    # (examples/demo), so the shared NAP axis and the borehole column line
+    # up against the same subsurface rather than two unrelated soundings
+    _demo = mo.notebook_dir().parent / "examples" / "demo"
+    cpt_file = str(_demo / "CPT000000057593.xml")
     cpt = ConePenetrationTest(cpt_file)
-    gt_borehole = GeotechnicalBoreholeResearch(str(_bhr_files[0]))
+    gt_borehole = GeotechnicalBoreholeResearch(str(_demo / "BHR000000369216.xml"))
     return cpt, cpt_file, gt_borehole
+
+
+@app.cell(hide_code=True)
+def _(cpt, gt_borehole, mo):
+    # how far the CPT and borehole actually sit from each other, straight
+    # from their delivered RD coordinates (meters) — the closer they are, the
+    # more the borehole column and the sounding describe the same subsurface
+    _cx, _cy = cpt.deliveredLocation.x, cpt.deliveredLocation.y
+    _bx, _by = gt_borehole.deliveredLocation.x, gt_borehole.deliveredLocation.y
+    _dist = ((_cx - _bx) ** 2 + (_cy - _by) ** 2) ** 0.5
+    mo.md(
+        f"CPT **{cpt.broId}** and borehole **{gt_borehole.broId}** are "
+        f"**{_dist:.1f} m** apart."
+    )
+    return
+
+
+@app.cell
+def _(cpt):
+    cpt
+    return
 
 
 @app.cell
@@ -116,7 +134,7 @@ def _(cpt, pd):
 @app.cell
 def _(cpt, to_vertical):
     # groundwater level in m below surface, fixed for the demo
-    gwl = 6.9
+    gwl = 0.2
 
     def at(depth_below_surface):
         """Annotation position in m NAP."""
@@ -244,9 +262,10 @@ def _(cpt_file, gwl, interpret_bro):
 
 @app.cell
 def _(at, cpt_interps, gt_borehole, layers_from_bhrgt):
-    # layer boundaries converted to NAP; only the Robertson column shows in
-    # the viewer. The borehole column shares the NAP axis directly: NAP is
-    # the datum layers_from_bhrgt emits
+    # layer boundaries converted to NAP; both interpretation columns
+    # (Robertson and Lengkeek 2022) show in the viewer, side by side. The
+    # borehole column shares the NAP axis directly: NAP is the datum
+    # layers_from_bhrgt emits
     interpretations = [
         {
             "label": col["label"],
@@ -256,7 +275,6 @@ def _(at, cpt_interps, gt_borehole, layers_from_bhrgt):
             ],
         }
         for col in cpt_interps
-        if col["label"] == "Robertson"
     ]
     borehole = {
         "label": gt_borehole.broId,
@@ -293,9 +311,10 @@ def _(
     interpretations,
     set_edited_layers,
 ):
-    # seed the editable column once from the Robertson interpretation,
-    # simplified into the widget's base palette (e.g. "silt mix" seeds as
-    # silt, "stiff fine gr." as clay)
+    # seed the editable column from the Robertson interpretation, simplified
+    # into the widget's base palette (e.g. "silt mix" seeds as silt, "stiff
+    # fine gr." as clay). Keyed on the CPT, so swapping the sounding re-seeds
+    # instead of leaving stale edits from the previous one
     _seed_class = {
         "sensitive": "clay",
         "organic": "peat",
@@ -310,9 +329,10 @@ def _(
         "stiff fine gr.": "clay",
     }
 
-    if edited_store["seed"] != "Robertson":
+    _seed_key = ("Robertson", cpt.broId)
+    if edited_store["seed"] != _seed_key:
         _col = next((c for c in cpt_interps if c["label"] == "Robertson"), None)
-        edited_store["seed"] = "Robertson"
+        edited_store["seed"] = _seed_key
         edited_store["layers"] = [
             {
                 "top": l["top"],
@@ -342,6 +362,7 @@ def _(
     viewer = CPTViewer(
         cpt_data,
         vertical="nap",
+        width=510,
         channels=[
             "coneResistance",
             "localFriction",
@@ -356,12 +377,59 @@ def _(
         ],
         overlays=[hydrostatic],
         annotations=[
-            {"at": at(gwl), "label": "GWL", "color": "#4269d0", "position": "left"},
+            # the line sits near the top of the plot, so the label goes
+            # below it (offset dy) to stay clear of the frame clip
+            {
+                "at": at(gwl),
+                "label": "GWL",
+                "color": "#4269d0",
+                "position": "left",
+                "offset": [0, 16],
+            },
         ],
     )
 
     viewer.observe(_on_edit, names="editedLayers")
     viewer
+    return
+
+
+@app.cell(hide_code=True)
+def _(mo):
+    mo.md("""
+    ## Standalone CPT log
+    """)
+    return
+
+
+@app.cell(hide_code=True)
+def _(CPTLog, at, cpt_data, gwl, hydrostatic):
+    # the standalone measurement view: the same CPT chart as the viewer
+    # above, on its own. Channels, the zoomable NAP axis, the hover
+    # crosshair, the GWL reference line and the hydrostatic overlay all
+    # carry over; none of the interpretation, borehole, or editable-layer
+    # columns do
+    CPTLog(
+        cpt_data,
+        vertical="nap",
+        width=320,
+        channels=[
+            "coneResistance",
+            "localFriction",
+            "frictionRatio",
+            "porePressureU2",
+        ],
+        overlays=[hydrostatic],
+        annotations=[
+            {
+                "at": at(gwl),
+                "label": "GWL",
+                "color": "#4269d0",
+                "position": "left",
+                "offset": [0, 16],
+            },
+        ],
+    )
     return
 
 
@@ -443,6 +511,14 @@ def _(mo):
 
 
 @app.cell(hide_code=True)
+def _(mo):
+    # spacer that keeps the profile section below the fold in the
+    # recording's opening frame
+    mo.Html("<div style='height: 140px'></div>")
+    return
+
+
+@app.cell(hide_code=True)
 def _(
     ProfileViewer,
     profile_data,
@@ -462,10 +538,10 @@ def _(
         overlays=[
             {"levels": surface_levels, "label": "maaiveld", "color": "#8a6642"}
         ],
-        # the app column is ~710px wide: 690 keeps all four strips in
-        # view without the horizontal scroll + minimap
+        # the widened app column (demo.css) gives a 798px output area:
+        # 796 keeps all four strips in view without the scroll + minimap
         height=600,
-        width=690,
+        width=796,
     )
 
     profile.observe(
@@ -478,11 +554,7 @@ def _(
 @app.cell(column=1, hide_code=True)
 def _(mo):
     mo.md("""
-    ### Edited layers, live in Python
-
-    The layer column on the right of the chart is editable: drag a
-    boundary, split or merge layers, pick a soil class. Every edit lands
-    in this DataFrame through the `editedLayers` trait.
+    ## Edited layers
     """)
     return
 
@@ -498,7 +570,7 @@ def _(get_edited_layers, pd):
 def _(mo):
     # spacer that drops the selection panel beside the profile in the
     # other column
-    mo.Html("<div style='height: 490px'></div>")
+    mo.Html("<div style='height: 700px'></div>")
     return
 
 
@@ -507,11 +579,6 @@ def _(get_selected_cpt, mo, profile_data):
     _name = get_selected_cpt()
     _n = int((profile_data["name"] == _name).sum()) if _name else 0
     mo.md(f"""
-    ### Strip selection, live in Python
-
-    Clicking a strip in the profile syncs its name back through the
-    `selected` trait.
-
     Selected strip: **{_name or "none"}**{f" ({_n} samples)" if _name else ""}
     """)
     return

@@ -1,0 +1,5 @@
+/* recording layout: wider app columns so the widgets fill a 1920px frame
+   (2 x 830px + 32px gap fits inside the app's xl padding) */
+:root {
+  --content-width: 830px;
+}

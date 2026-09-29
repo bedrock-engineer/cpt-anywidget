@@ -1,4 +1,4 @@
-import { ColumnSpec, ColumnGeometry } from "../cpt-viewer";
+import type { ColumnSpec, ColumnGeometry } from "./types";
 
 
 /** slot layout: assigns each column's x — left-side columns stack outward

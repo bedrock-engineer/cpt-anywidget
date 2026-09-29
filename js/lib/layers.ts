@@ -1,7 +1,7 @@
 import { select } from "./d3";
 import { haloText } from "./focus-rig";
-import { dodgeLabels } from "./label-dodge";
 import type { AnySelection, Band, Layer, VerticalScale } from "./types";
+import { wrapLines } from "./wrap";
 
 /** band datum with its layer's vertical extent copied on */
 type PlacedBand = Band & { top: number; bottom: number };
@@ -12,21 +12,22 @@ type PlacedBand = Band & { top: number; bottom: number };
 export const labelMargin = 28;
 const depthLabelHeight = 12; // 10px font + breathing room: the dodge separation
 
+// soil-name label geometry: a 10px font, wrapped to the fill width and
+// vertically centered. soilLineHeight doubles as the thin-layer hide
+// threshold — a layer shorter than the wrapped block's height (line
+// count times this) drops its whole label rather than clipping it
+const soilLabelFontSize = 10;
+const soilLineHeight = 11;
+
 /** which side of the rects the label strip sits on — the CPT columns
     label on the left, the borehole log on the right */
 export type LabelSide = "left" | "right";
 
 // strip-local geometry per side: the rect edge is at x=labelMargin
-// (left strip) or x=0 (right strip); text hugs the outer edge, leaders
-// run from the rect edge and stop just short of the text
+// (left strip) or x=0 (right strip); text hugs the outer edge
 const labelGeometry = {
-  left: {
-    textX: labelMargin - 4,
-    anchor: "end",
-    leaderStart: labelMargin,
-    leaderEnd: labelMargin - 3,
-  },
-  right: { textX: 4, anchor: "start", leaderStart: 0, leaderEnd: 3 },
+  left: { textX: labelMargin - 4, anchor: "end" },
+  right: { textX: 4, anchor: "start" },
 } as const;
 
 /** re-callable column renderer bound to a display config; layers is an
@@ -71,6 +72,14 @@ export function layerRenderer({
       .attr("x", (b: PlacedBand) => labelMargin + b.x1 * (columnWidth - labelMargin))
       .attr("width", (b: PlacedBand) => (b.x2 - b.x1) * (columnWidth - labelMargin));
 
+  // characters that fit the fill width at the label font (glyphs
+  // estimated at half the font size, matching the borehole gutter wrap)
+  const labelMaxChars = Math.max(
+    1,
+    Math.floor((columnWidth - labelMargin - 4) / (soilLabelFontSize * 0.5)),
+  );
+  const labelCenterX = columnWidth / 2 + labelMargin / 2;
+
   return (parent, layers) => {
     const layerGroup = parent
       .selectAll<SVGGElement, Layer>("g.layer")
@@ -85,12 +94,13 @@ export function layerRenderer({
           // dark-page aware like the haloText backdrop
           .style("stroke", "Canvas");
 
+        // wrapped soil name: tspans carry the fill-width center x, the
+        // line-stacked y is set per frame in placeLayerColumn
         g.append("text")
           .attr("class", "soil-label")
-          .attr("x", columnWidth / 2 + labelMargin / 2)
-          .attr("dy", "0.32em")
           .attr("text-anchor", "middle")
-          .attr("font-size", 10)
+          .attr("dominant-baseline", "middle")
+          .attr("font-size", soilLabelFontSize)
           .attr("fill", "#333")
           .call(haloText);
 
@@ -110,12 +120,24 @@ export function layerRenderer({
       .attr("fill", (d) =>
         d.bands ? "none" : d.class != null ? classColor(d.class) : (d.color ?? "#ccc"),
       );
-    layerGroup
-      .select("text.soil-label")
-      .text((d) => (d.bands ? "" : (d.label ?? classLabel.get(d.class!) ?? d.class ?? "")));
+    // every layer names its soil, banded borehole layers included — the
+    // name wraps on its own whitespace to the fill width, halos over the
+    // bands, and hides when the layer is too thin (placeLayerColumn), same
+    // as the interpretation columns and the standalone borehole log. The
+    // label is shown as authored: any word-splitting (e.g. of a camelCase
+    // soil name) is the caller's to do upstream, not ours to guess
+    layerGroup.select<SVGTextElement>("text.soil-label").each(function (d) {
+      const label = d.label ?? classLabel.get(d.class!) ?? d.class ?? "";
+      select(this)
+        .selectAll<SVGTSpanElement, string>("tspan")
+        .data(wrapLines(label, labelMaxChars))
+        .join("tspan")
+        .attr("x", labelCenterX)
+        .text((line) => line);
+    });
 
-    // banded layers get their (long) soil name as a native tooltip
-    // instead of an overflowing label
+    // banded layers also carry the full, untruncated soil name as a
+    // native tooltip — the wrapped label may drop lines on a thin layer
     layerGroup.select("title").text((d) => (d.bands ? (d.label ?? "") : ""));
 
     // hatch overlays are a sibling join so a band can carry both a
@@ -137,6 +159,10 @@ export function layerRenderer({
       .attr("class", "hatch")
       .call(bandX)
       .attr("fill", (b) => `url(#${hatchId.get(b.hatch!)})`);
+
+    // the band/hatch rects join after the label in the DOM, so lift the
+    // soil name back above them — otherwise the bands paint over it
+    layerGroup.select("text.soil-label").raise();
 
     // boundary depth labels are their own join, sibling to the layers:
     // one per layer top plus the last layer's bottom. Datums reference
@@ -162,10 +188,10 @@ export function boundaryData(layers: Layer[], format: (value: number) => string)
     : [];
 }
 
-/** join the boundary label skeletons (text + leader path) under parent,
-    in strip-local coordinates (the label strip spans [0, labelMargin]);
-    placeDepthLabels does all placement, dodging, and text — call it with
-    the same side */
+/** join the boundary label skeletons (text only) under parent, in
+    strip-local coordinates (the label strip spans [0, labelMargin]);
+    placeDepthLabels does all placement, thinning, and text — the side
+    only sets which edge the text hugs, so placement takes none */
 export function boundaryLabels(
   parent: AnySelection<SVGGElement>,
   data: Boundary[] | ((d: any) => Boundary[]),
@@ -182,8 +208,6 @@ export function boundaryLabels(
       .attr("fill", "currentColor")
       .attr("dominant-baseline", "middle")
       .attr("text-anchor", geom.anchor);
-
-    g.append("path").attr("fill", "none").attr("stroke", "#888").attr("stroke-width", 0.75);
 
     return g;
   });
@@ -206,9 +230,25 @@ export function placeLayerColumn(parent: AnySelection<SVGGElement>, y1: Vertical
     .attr("y", (d) => Math.min(y1(d.top), y1(d.bottom)))
     .attr("height", (d) => Math.abs(y1(d.bottom) - y1(d.top)));
 
-  layerGroup.select("text.soil-label").attr("y", (d) => (y1(d.top) + y1(d.bottom)) / 2);
+  // wrapped soil name: center the line block on the layer midpoint, but
+  // hide it wholesale when the layer is too short to seat every line —
+  // clipped or overflowing text reads as noise
+  layerGroup.select<SVGTextElement>("text.soil-label").each(function (d) {
+    const label = select(this);
+    const tspans = label.selectAll<SVGTSpanElement, string>("tspan");
+    const lines = tspans.size();
+    const blockHeight = lines * soilLineHeight;
+    const layerHeight = Math.abs(y1(d.bottom) - y1(d.top));
+    if (lines === 0 || blockHeight > layerHeight) {
+      label.attr("display", "none");
+      return;
+    }
+    label.attr("display", null);
+    const mid = (y1(d.top) + y1(d.bottom)) / 2;
+    tspans.attr("y", (_, i) => mid + (i - (lines - 1) / 2) * soilLineHeight);
+  });
 
-  // depth labels dodge per column — each parent node is one column with
+  // depth labels thin per column — each parent node is one column with
   // its own boundary set
   parent.each(function () {
     placeDepthLabels(select(this), y1);
@@ -223,21 +263,15 @@ export interface Boundary {
   format: (value: number) => string;
 }
 
-// boundary depth labels with 1D dodging: labels keep their boundary's
-// position until they'd overlap, then colliding runs spread apart
-// (order preserved, minimal displacement) and each displaced label gets
-// a leader line back to its boundary. A pure function of the zoomed
-// scale: zooming in relaxes labels back to their anchors and the
-// leaders disappear
-export function placeDepthLabels(
-  column: AnySelection<SVGGElement>,
-  y1: VerticalScale,
-  side: LabelSide = "left",
-): void {
-  const geom = labelGeometry[side];
-  // both Bézier control points sit at the midpoint x, so the leader
-  // leaves the boundary and meets the label horizontally (an S-curve)
-  const leaderMidX = (geom.leaderStart + geom.leaderEnd) / 2;
+// boundary depth labels, thinned by importance: labels stay at their
+// exact boundary depth (never nudged), and where a column packs more
+// boundaries than fit, only the most significant survive — the log's
+// top and bottom always, then the boundaries of the thickest layers, so
+// a dense run of thin interbeds collapses to its major interfaces. The
+// exact depth of every dropped boundary is still one hover away on the
+// crosshair readout. A pure function of the zoomed scale: zooming in
+// thins less until every boundary shows
+export function placeDepthLabels(column: AnySelection<SVGGElement>, y1: VerticalScale): void {
   const boundarySel = column.selectAll<SVGGElement, Boundary>("g.boundary");
   const nodes = boundarySel.nodes();
   const data = boundarySel.data();
@@ -245,10 +279,8 @@ export function placeDepthLabels(
     return;
   }
 
-  // cull boundaries zoomed out of view: they neither render nor push
-  // visible labels around. Layer order puts anchors ascending in pixels
-  // (first layer renders at the top in both depth and nap mode), which
-  // is what the dodge requires
+  // cull boundaries zoomed out of view: they neither render nor crowd
+  // the labels that are in view
   const [r0, r1] = y1.range();
   const lo = Math.min(r0, r1);
   const hi = Math.max(r0, r1);
@@ -261,45 +293,46 @@ export function placeDepthLabels(
     }
   });
 
-  // more visible boundaries than the strip can hold means every label
-  // ends up displaced onto a leader — noise, not information. Hide the
-  // whole strip instead; zooming in shrinks the visible set until the
-  // labels fit and come back
-  if (visible.length * depthLabelHeight > hi - lo) {
-    boundarySel.attr("display", "none");
-    return;
+  // clamp to half a label off each edge so the top/bottom labels sit
+  // fully inside the clip rather than half-hanging past it
+  const half = depthLabelHeight / 2;
+  const posOf = (i: number) => Math.max(lo + half, Math.min(hi - half, anchors[i]));
+
+  // a boundary's weight is the thicker of the two layers it separates
+  // (in pixels, so it tracks zoom); the log's outer ends always win
+  const pxThick = (l: Layer) => Math.abs(y1(l.bottom) - y1(l.top));
+  const weightOf = (i: number) =>
+    i === 0 || i === data.length - 1
+      ? Infinity
+      : Math.max(pxThick(data[i - 1].layer), pxThick(data[i].layer));
+
+  // keep labels heaviest-first, accepting one only where it clears every
+  // already-kept label by a full label height; ties break by depth order
+  // so the pass is deterministic across frames
+  const order = [...visible].sort((a, b) => weightOf(b) - weightOf(a) || a - b);
+  const kept = new Map<number, number>();
+  for (const i of order) {
+    const p = posOf(i);
+    let clears = true;
+    for (const q of kept.values()) {
+      if (Math.abs(p - q) < depthLabelHeight) {
+        clears = false;
+        break;
+      }
+    }
+    if (clears) {
+      kept.set(i, p);
+    }
   }
-
-  // half a label of padding keeps the edge labels fully inside the clip
-  const placed = dodgeLabels(
-    visible.map((i) => anchors[i]),
-    depthLabelHeight,
-    [lo + depthLabelHeight / 2, hi - depthLabelHeight / 2],
-  );
-
-  const posByIndex = new Map<number, number>();
-  visible.forEach((bi, j) => posByIndex.set(bi, placed[j]));
 
   nodes.forEach((node, i) => {
     const g = select(node);
-    const p = posByIndex.get(i);
+    const p = kept.get(i);
     if (p === undefined) {
       g.attr("display", "none");
       return;
     }
     g.attr("display", null);
-
     g.select("text").attr("y", p).text(data[i].format(data[i].layer[data[i].which]));
-
-    // a leader only where the dodge actually displaced the label
-    const displaced = Math.abs(p - anchors[i]) > 0.5;
-    g.select("path")
-      .attr("display", displaced ? null : "none")
-      .attr(
-        "d",
-        displaced
-          ? `M${geom.leaderStart},${anchors[i]}C${leaderMidX},${anchors[i]} ${leaderMidX},${p} ${geom.leaderEnd},${p}`
-          : null,
-      );
   });
 }

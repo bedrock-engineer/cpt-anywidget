@@ -128,16 +128,20 @@ export function buildSeries({
     .filter((s): s is Series => s.x !== null);
 }
 
-// path for one series: values in the series' x, vertical samples on a
-// (possibly zoomed) y scale
+// path for one curve: `values` placed in the channel's x scale against
+// vertical samples on a (possibly zoomed) y scale. x and values are
+// passed separately rather than read off a Series, so both the single-
+// sounding chart (values on the series) and the profile (a channel's x
+// shared across strips, values per strip) draw curves the same way
 export function lineFor(
-  s: Series,
+  x: d3.ScaleLinear<number, number>,
+  values: Samples,
   vertical: Samples,
   y1: VerticalScale,
 ): string | null {
   return d3
     .line<number | null>()
-    .defined((_, i) => s.values[i] != null && vertical[i] != null)
-    .x((_, i) => s.x(s.values[i]!))
+    .defined((_, i) => values[i] != null && vertical[i] != null)
+    .x((_, i) => x(values[i]!))
     .y((_, i) => y1(vertical[i]!))(vertical);
 }

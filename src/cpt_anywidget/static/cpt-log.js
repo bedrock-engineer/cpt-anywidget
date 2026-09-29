@@ -1,3 +1,46 @@
+const haloText = (text, strokeWidth = 1.5) => text.style("stroke", "Canvas").attr("stroke-width", strokeWidth).attr("paint-order", "stroke");
+function focusRig(svg, {
+  marginLeft,
+  ruleX2,
+  readoutHost
+}) {
+  const ruleX2Of = typeof ruleX2 === "function" ? ruleX2 : () => ruleX2;
+  const focus = svg.append("g").attr("display", "none").attr("pointer-events", "none");
+  const rule = focus.append("line").attr("x1", marginLeft).attr("x2", ruleX2Of()).attr("stroke", "currentColor").attr("stroke-opacity", 0.3);
+  const readoutGroup = readoutHost ? readoutHost.append("g").attr("display", "none").attr("pointer-events", "none") : focus;
+  const readout = readoutGroup.append("text").attr("x", marginLeft - 8).attr("dy", "0.32em").attr("text-anchor", "end").attr("font-size", 12).attr("font-weight", "bold").attr("fill", "currentColor").call(haloText);
+  const groups = readoutGroup === focus ? [focus] : [focus, readoutGroup];
+  return {
+    focus,
+    readout,
+    show: (ym) => {
+      rule.attr("x2", ruleX2Of());
+      groups.forEach((g) => g.attr("display", null).attr("transform", `translate(0,${ym})`));
+    },
+    hide: () => groups.forEach((g) => g.attr("display", "none"))
+  };
+}
+function annotationLayer(svg, annotations, { clipId, marginLeft, marginRight, width }) {
+  const currentWidth = typeof width === "function" ? width : () => width;
+  const labelAnchor = { left: "start", center: "middle", right: "end" };
+  const annotation = svg.append("g").selectAll("g").data(annotations).join("g");
+  const line2 = annotation.append("line").attr("x1", marginLeft).attr("stroke", (d) => d.color ?? "currentColor").attr("stroke-dasharray", (d) => d.dash ?? "4 3");
+  const label = annotation.append("text").attr("y", (d) => -4 + (d.offset?.[1] ?? 0)).attr("text-anchor", (d) => labelAnchor[d.position ?? "right"]).attr("font-size", 11).attr("fill", (d) => d.color ?? "currentColor").call(haloText).text((d) => d.label ?? "");
+  return (y1) => {
+    const w = currentWidth();
+    const labelX = {
+      left: marginLeft + 6,
+      center: (marginLeft + w - marginRight) / 2,
+      right: w - marginRight - 6
+    };
+    line2.attr("x2", w - marginRight);
+    label.attr(
+      "x",
+      (d) => labelX[d.position ?? "right"] + (d.offset?.[0] ?? 0)
+    );
+    annotation.attr("transform", (d) => `translate(0,${y1(d.at)})`);
+  };
+}
 function ascending$1(a, b) {
   return a == null || b == null ? NaN : a < b ? -1 : a > b ? 1 : a >= b ? 0 : NaN;
 }
@@ -226,9 +269,6 @@ function axis(orient, scale) {
 function axisTop(scale) {
   return axis(top, scale);
 }
-function axisRight(scale) {
-  return axis(right, scale);
-}
 function axisBottom(scale) {
   return axis(bottom, scale);
 }
@@ -451,7 +491,7 @@ EnterNode.prototype = {
     return this._parent.querySelectorAll(selector2);
   }
 };
-function constant$5(x2) {
+function constant$4(x2) {
   return function() {
     return x2;
   };
@@ -506,7 +546,7 @@ function datum(node) {
 function selection_data(value, key) {
   if (!arguments.length) return Array.from(this, datum);
   var bind = key ? bindKey : bindIndex, parents = this._parents, groups = this._groups;
-  if (typeof value !== "function") value = constant$5(value);
+  if (typeof value !== "function") value = constant$4(value);
   for (var m = groups.length, update = new Array(m), enter = new Array(m), exit = new Array(m), j = 0; j < m; ++j) {
     var parent = parents[j], group = groups[j], groupLength = group.length, data = arraylike(value.call(parent, parent && parent.__data__, j, parents)), dataLength = data.length, enterGroup = enter[j] = new Array(dataLength), updateGroup = update[j] = new Array(dataLength), exitGroup = exit[j] = new Array(groupLength);
     bind(parent, group, enterGroup, updateGroup, exitGroup, data, key);
@@ -1020,11 +1060,7 @@ function pointer(event, node) {
   }
   return [event.pageX, event.pageY];
 }
-const nonpassive = { passive: false };
 const nonpassivecapture = { capture: true, passive: false };
-function nopropagation$2(event) {
-  event.stopImmediatePropagation();
-}
 function noevent$2(event) {
   event.preventDefault();
   event.stopImmediatePropagation();
@@ -1052,180 +1088,6 @@ function yesdrag(view, noclick) {
     root2.style.MozUserSelect = root2.__noselect;
     delete root2.__noselect;
   }
-}
-const constant$4 = (x2) => () => x2;
-function DragEvent(type2, {
-  sourceEvent: sourceEvent2,
-  subject,
-  target,
-  identifier,
-  active,
-  x: x2,
-  y: y2,
-  dx,
-  dy,
-  dispatch: dispatch2
-}) {
-  Object.defineProperties(this, {
-    type: { value: type2, enumerable: true, configurable: true },
-    sourceEvent: { value: sourceEvent2, enumerable: true, configurable: true },
-    subject: { value: subject, enumerable: true, configurable: true },
-    target: { value: target, enumerable: true, configurable: true },
-    identifier: { value: identifier, enumerable: true, configurable: true },
-    active: { value: active, enumerable: true, configurable: true },
-    x: { value: x2, enumerable: true, configurable: true },
-    y: { value: y2, enumerable: true, configurable: true },
-    dx: { value: dx, enumerable: true, configurable: true },
-    dy: { value: dy, enumerable: true, configurable: true },
-    _: { value: dispatch2 }
-  });
-}
-DragEvent.prototype.on = function() {
-  var value = this._.on.apply(this._, arguments);
-  return value === this._ ? this : value;
-};
-function defaultFilter$2(event) {
-  return !event.ctrlKey && !event.button;
-}
-function defaultContainer() {
-  return this.parentNode;
-}
-function defaultSubject(event, d) {
-  return d == null ? { x: event.x, y: event.y } : d;
-}
-function defaultTouchable$2() {
-  return navigator.maxTouchPoints || "ontouchstart" in this;
-}
-function drag() {
-  var filter2 = defaultFilter$2, container = defaultContainer, subject = defaultSubject, touchable = defaultTouchable$2, gestures = {}, listeners = dispatch("start", "drag", "end"), active = 0, mousedownx, mousedowny, mousemoving, touchending, clickDistance2 = 0;
-  function drag2(selection2) {
-    selection2.on("mousedown.drag", mousedowned).filter(touchable).on("touchstart.drag", touchstarted).on("touchmove.drag", touchmoved, nonpassive).on("touchend.drag touchcancel.drag", touchended).style("touch-action", "none").style("-webkit-tap-highlight-color", "rgba(0,0,0,0)");
-  }
-  function mousedowned(event, d) {
-    if (touchending || !filter2.call(this, event, d)) return;
-    var gesture = beforestart(this, container.call(this, event, d), event, d, "mouse");
-    if (!gesture) return;
-    select(event.view).on("mousemove.drag", mousemoved, nonpassivecapture).on("mouseup.drag", mouseupped, nonpassivecapture);
-    dragDisable(event.view);
-    nopropagation$2(event);
-    mousemoving = false;
-    mousedownx = event.clientX;
-    mousedowny = event.clientY;
-    gesture("start", event);
-  }
-  function mousemoved(event) {
-    noevent$2(event);
-    if (!mousemoving) {
-      var dx = event.clientX - mousedownx, dy = event.clientY - mousedowny;
-      mousemoving = dx * dx + dy * dy > clickDistance2;
-    }
-    gestures.mouse("drag", event);
-  }
-  function mouseupped(event) {
-    select(event.view).on("mousemove.drag mouseup.drag", null);
-    yesdrag(event.view, mousemoving);
-    noevent$2(event);
-    gestures.mouse("end", event);
-  }
-  function touchstarted(event, d) {
-    if (!filter2.call(this, event, d)) return;
-    var touches = event.changedTouches, c = container.call(this, event, d), n = touches.length, i, gesture;
-    for (i = 0; i < n; ++i) {
-      if (gesture = beforestart(this, c, event, d, touches[i].identifier, touches[i])) {
-        nopropagation$2(event);
-        gesture("start", event, touches[i]);
-      }
-    }
-  }
-  function touchmoved(event) {
-    var touches = event.changedTouches, n = touches.length, i, gesture;
-    for (i = 0; i < n; ++i) {
-      if (gesture = gestures[touches[i].identifier]) {
-        noevent$2(event);
-        gesture("drag", event, touches[i]);
-      }
-    }
-  }
-  function touchended(event) {
-    var touches = event.changedTouches, n = touches.length, i, gesture;
-    if (touchending) clearTimeout(touchending);
-    touchending = setTimeout(function() {
-      touchending = null;
-    }, 500);
-    for (i = 0; i < n; ++i) {
-      if (gesture = gestures[touches[i].identifier]) {
-        nopropagation$2(event);
-        gesture("end", event, touches[i]);
-      }
-    }
-  }
-  function beforestart(that, container2, event, d, identifier, touch) {
-    var dispatch2 = listeners.copy(), p = pointer(touch || event, container2), dx, dy, s;
-    if ((s = subject.call(that, new DragEvent("beforestart", {
-      sourceEvent: event,
-      target: drag2,
-      identifier,
-      active,
-      x: p[0],
-      y: p[1],
-      dx: 0,
-      dy: 0,
-      dispatch: dispatch2
-    }), d)) == null) return;
-    dx = s.x - p[0] || 0;
-    dy = s.y - p[1] || 0;
-    return function gesture(type2, event2, touch2) {
-      var p0 = p, n;
-      switch (type2) {
-        case "start":
-          gestures[identifier] = gesture, n = active++;
-          break;
-        case "end":
-          delete gestures[identifier], --active;
-        // falls through
-        case "drag":
-          p = pointer(touch2 || event2, container2), n = active;
-          break;
-      }
-      dispatch2.call(
-        type2,
-        that,
-        new DragEvent(type2, {
-          sourceEvent: event2,
-          subject: s,
-          target: drag2,
-          identifier,
-          active: n,
-          x: p[0] + dx,
-          y: p[1] + dy,
-          dx: p[0] - p0[0],
-          dy: p[1] - p0[1],
-          dispatch: dispatch2
-        }),
-        d
-      );
-    };
-  }
-  drag2.filter = function(_) {
-    return arguments.length ? (filter2 = typeof _ === "function" ? _ : constant$4(!!_), drag2) : filter2;
-  };
-  drag2.container = function(_) {
-    return arguments.length ? (container = typeof _ === "function" ? _ : constant$4(_), drag2) : container;
-  };
-  drag2.subject = function(_) {
-    return arguments.length ? (subject = typeof _ === "function" ? _ : constant$4(_), drag2) : subject;
-  };
-  drag2.touchable = function(_) {
-    return arguments.length ? (touchable = typeof _ === "function" ? _ : constant$4(!!_), drag2) : touchable;
-  };
-  drag2.on = function() {
-    var value = listeners.on.apply(listeners, arguments);
-    return value === listeners ? drag2 : value;
-  };
-  drag2.clickDistance = function(_) {
-    return arguments.length ? (clickDistance2 = (_ = +_) * _, drag2) : Math.sqrt(clickDistance2);
-  };
-  return drag2;
 }
 function define(constructor, factory, prototype) {
   constructor.prototype = factory.prototype = prototype;
@@ -4020,83 +3882,29 @@ function makeXScale(values, range, limits) {
   const scale = linear().range(range);
   return limits ? scale.domain(limits) : scale.domain([Math.min(0, min$1(finite)), max$1(finite)]).nice();
 }
+function buildSeries({
+  channels,
+  cptData,
+  axisLimits,
+  rangeBottom,
+  rangeTop
+}) {
+  const requested = channels.length ? channels : Object.keys(channelDefaults);
+  return requested.map((channel, index) => {
+    const merged = resolveChannel(channel, Tableau10[index % 10]);
+    return {
+      ...merged,
+      values: cptData[merged.key],
+      x: makeXScale(
+        cptData[merged.key],
+        merged.side === "top" ? rangeTop : rangeBottom,
+        axisLimits[merged.key]
+      )
+    };
+  }).filter((s) => s.x !== null);
+}
 function lineFor(x2, values, vertical, y1) {
   return line().defined((_, i) => values[i] != null && vertical[i] != null).x((_, i) => x2(values[i])).y((_, i) => y1(vertical[i]))(vertical);
-}
-const haloText = (text, strokeWidth = 1.5) => text.style("stroke", "Canvas").attr("stroke-width", strokeWidth).attr("paint-order", "stroke");
-function focusRig(svg, {
-  marginLeft,
-  ruleX2,
-  readoutHost
-}) {
-  const ruleX2Of = typeof ruleX2 === "function" ? ruleX2 : () => ruleX2;
-  const focus = svg.append("g").attr("display", "none").attr("pointer-events", "none");
-  const rule = focus.append("line").attr("x1", marginLeft).attr("x2", ruleX2Of()).attr("stroke", "currentColor").attr("stroke-opacity", 0.3);
-  const readoutGroup = readoutHost ? readoutHost.append("g").attr("display", "none").attr("pointer-events", "none") : focus;
-  const readout = readoutGroup.append("text").attr("x", marginLeft - 8).attr("dy", "0.32em").attr("text-anchor", "end").attr("font-size", 12).attr("font-weight", "bold").attr("fill", "currentColor").call(haloText);
-  const groups = readoutGroup === focus ? [focus] : [focus, readoutGroup];
-  return {
-    focus,
-    readout,
-    show: (ym) => {
-      rule.attr("x2", ruleX2Of());
-      groups.forEach((g) => g.attr("display", null).attr("transform", `translate(0,${ym})`));
-    },
-    hide: () => groups.forEach((g) => g.attr("display", "none"))
-  };
-}
-function annotationLayer(svg, annotations, { clipId, marginLeft, marginRight, width }) {
-  const currentWidth = typeof width === "function" ? width : () => width;
-  const labelAnchor = { left: "start", center: "middle", right: "end" };
-  const annotation = svg.append("g").selectAll("g").data(annotations).join("g");
-  const line2 = annotation.append("line").attr("x1", marginLeft).attr("stroke", (d) => d.color ?? "currentColor").attr("stroke-dasharray", (d) => d.dash ?? "4 3");
-  const label = annotation.append("text").attr("y", (d) => -4 + (d.offset?.[1] ?? 0)).attr("text-anchor", (d) => labelAnchor[d.position ?? "right"]).attr("font-size", 11).attr("fill", (d) => d.color ?? "currentColor").call(haloText).text((d) => d.label ?? "");
-  return (y1) => {
-    const w = currentWidth();
-    const labelX = {
-      left: marginLeft + 6,
-      center: (marginLeft + w - marginRight) / 2,
-      right: w - marginRight - 6
-    };
-    line2.attr("x2", w - marginRight);
-    label.attr(
-      "x",
-      (d) => labelX[d.position ?? "right"] + (d.offset?.[0] ?? 0)
-    );
-    annotation.attr("transform", (d) => `translate(0,${y1(d.at)})`);
-  };
-}
-function chainageAxisFor(layout) {
-  const { distances, span, groups, anchorX, innerLeft, innerRight } = layout;
-  const n = distances.length;
-  const formatDistance = format(",.0f");
-  return (gOrT) => {
-    if (n < 2) {
-      return;
-    }
-    const equal = layout.equalSpacing();
-    const centers = layout.centers();
-    const selection2 = gOrT.selection();
-    if (!equal && span > 0) {
-      selection2.selectAll("text.chain-label").remove();
-      gOrT.call(
-        axisBottom(
-          linear().domain([distances[0], distances[n - 1]]).range([anchorX(distances[0]), anchorX(distances[n - 1])])
-        ).ticks((innerRight - innerLeft) / 90).tickFormat((d) => formatDistance(+d)).tickSizeOuter(0)
-      );
-      return;
-    }
-    selection2.selectAll(".tick,.domain").remove();
-    const labelX = (gr) => gr.index.reduce((s, i) => s + centers[i], 0) / gr.index.length;
-    const labels = selection2.selectAll("text.chain-label").data(groups).join(
-      (enter) => enter.append("text").attr("class", "chain-label").attr("y", 9).attr("dy", "0.71em").attr("text-anchor", "middle").attr("font-size", 10).attr("fill", "currentColor").attr("x", labelX).text((gr) => formatDistance(gr.dist))
-    );
-    if (gOrT !== selection2) {
-      labels.transition(gOrT).attr("x", labelX);
-    } else {
-      labels.attr("x", labelX);
-    }
-  };
 }
 function makeVerticalScale(fallback, range, limits) {
   const y2 = linear().domain(limits ?? fallback).range(range);
@@ -4106,7 +3914,6 @@ function makeVerticalScale(fallback, range, limits) {
   return y2;
 }
 const yAxisFor = (marginLeft, height) => (g, y1) => g.attr("transform", `translate(${marginLeft},0)`).call(axisLeft(y1).ticks(height / 60));
-const yAxisRightFor = (x2, height) => (g, y1) => g.attr("transform", `translate(${typeof x2 === "function" ? x2() : x2},0)`).call(axisRight(y1).ticks(height / 60));
 const yGridFor = ({ x1, x2, height }) => (g, y1) => g.attr("stroke", "currentColor").attr("stroke-opacity", 0.1).selectAll("line").data(y1.ticks(height / 60)).join("line").attr("x1", x1).attr("x2", typeof x2 === "function" ? x2() : x2).attr("y1", (d) => 0.5 + y1(d)).attr("y2", (d) => 0.5 + y1(d));
 function verticalAxisTitle(svg, label, y2 = 14) {
   svg.append("text").attr("x", 0).attr("y", y2).attr("fill", "currentColor").attr("text-anchor", "start").attr("font-weight", "bold").text(label);
@@ -4116,118 +3923,113 @@ function plotClip(svg, prefix, { x: x2, y: y2, width, height }) {
   svg.append("clipPath").attr("id", id2).append("rect").attr("x", x2).attr("y", y2).attr("width", width).attr("height", height);
   return id2;
 }
-function minimap(host, scroller, { stripWidth, height = 20, signal }) {
-  let centers = [];
-  let contentWidth = 1;
-  let minimapWidth = 0;
-  const svg = host.append("svg").attr("height", height).style("display", "block").style("margin-bottom", "4px").style("touch-action", "none");
-  const track = svg.append("rect").attr("height", height).attr("rx", 3).attr("fill", "currentColor").attr("fill-opacity", 0.06).style("cursor", "pointer");
-  const marks = svg.append("g").attr("fill", "currentColor").attr("fill-opacity", 0.45);
-  const view = svg.append("rect").attr("y", 0.75).attr("height", height - 1.5).attr("rx", 3).attr("fill", "currentColor").attr("fill-opacity", 0.12).attr("stroke", "currentColor").attr("stroke-opacity", 0.6).attr("stroke-width", 1.5).style("cursor", "grab");
-  const viewGeom = () => ({
-    x: scroller.scrollLeft * minimapWidth / contentWidth,
-    w: scroller.clientWidth * minimapWidth / contentWidth
+function cptChart(svg, {
+  cptData,
+  vertical,
+  vert,
+  channels,
+  axisLimits,
+  width,
+  height,
+  margin,
+  gridLeft,
+  gridRight
+}) {
+  const series = buildSeries({
+    channels,
+    cptData,
+    axisLimits,
+    rangeBottom: [margin.left, width - margin.right],
+    rangeTop: [width - margin.right, margin.left]
   });
-  const placeView = () => {
-    const { x: x2, w } = viewGeom();
-    view.attr("x", x2).attr("width", w);
-  };
-  const layout = () => {
-    minimapWidth = scroller.clientWidth;
-    if (contentWidth > minimapWidth + 1) {
-      host.style("display", null);
-    } else {
-      host.style("display", "none");
-    }
-    svg.attr("width", minimapWidth);
-    track.attr("width", minimapWidth);
-    const k = minimapWidth / contentWidth;
-    marks.selectAll("rect").data(centers).join("rect").attr("x", (c) => (c - stripWidth / 2) * k).attr("width", Math.max(1, stripWidth * k)).attr("y", 4).attr("height", height - 8);
-    placeView();
-  };
-  scroller.addEventListener("scroll", placeView, { signal });
-  const layoutResizeObserver = new ResizeObserver(layout);
-  layoutResizeObserver.observe(scroller);
-  signal.addEventListener("abort", () => layoutResizeObserver.disconnect());
-  view.call(
-    drag().on("start", () => {
-      select(scroller).interrupt("minimap-scroll");
-      view.style("cursor", "grabbing");
-    }).on("drag", (event) => {
-      scroller.scrollLeft += event.dx * contentWidth / minimapWidth;
-    }).on("end", () => view.style("cursor", "grab"))
+  const bottomSeries = series.filter((s) => s.side === "bottom");
+  const topSeries = series.filter((s) => s.side === "top");
+  const marginTop = margin.top + axisSlot * topSeries.length;
+  const marginBottom = margin.bottom + axisSlot * bottomSeries.length;
+  const y2 = makeVerticalScale(
+    [vertical[0], vertical[vertical.length - 1]],
+    [marginTop, height - marginBottom],
+    axisLimits[vert.key]
   );
-  svg.on("click", (event) => {
-    const [px] = pointer(event);
-    const { x: x2, w } = viewGeom();
-    if (px >= x2 && px <= x2 + w) {
-      return;
-    }
-    const target = px * contentWidth / minimapWidth - scroller.clientWidth / 2;
-    const from = scroller.scrollLeft;
-    select(scroller).transition("minimap-scroll").duration(Math.min(400, 100 + Math.abs(target - from) / 8)).tween("scroll", () => (t) => {
-      scroller.scrollLeft = from + (target - from) * t;
-    });
+  const xAxis = (g, s, slotY) => g.attr("transform", `translate(0,${slotY})`).call(channelAxis, s, { ticks: width / 100 }).call(
+    (g2) => g2.append("text").attr("x", s.side === "bottom" ? margin.left - 16 : width - margin.right + 16).attr("y", s.side === "bottom" ? 9 : -9).attr("dy", s.side === "bottom" ? "0.71em" : "0em").attr("fill", s.color).attr("text-anchor", s.side === "bottom" ? "end" : "start").attr("font-weight", "bold").attr("font-size", 12).text(channelTitle(s))
+  );
+  const gridXScale = bottomSeries[0]?.x ?? topSeries[0]?.x;
+  const xGrid = (g) => g.attr("stroke", "currentColor").attr("stroke-opacity", 0.1).selectAll("line").data(gridXScale ? gridXScale.ticks(width / 100) : []).join("line").attr("x1", (d) => 0.5 + gridXScale(d)).attr("x2", (d) => 0.5 + gridXScale(d)).attr("y1", marginTop).attr("y2", height - marginBottom);
+  const yAxis = yAxisFor(margin.left, height);
+  const yGrid = yGridFor({
+    x1: gridLeft ?? margin.left,
+    x2: gridRight ?? width - margin.right,
+    height
   });
-  return ({ centers: nextCenters, contentWidth: nextWidth }) => {
-    centers = nextCenters;
-    contentWidth = nextWidth;
-    layout();
+  const clipId = plotClip(svg, "plot-clip", {
+    x: margin.left,
+    y: marginTop,
+    width: width - margin.left - margin.right,
+    height: height - marginTop - marginBottom
+  });
+  const gGrid = svg.append("g").call(yGrid, y2);
+  svg.append("g").call(xGrid);
+  bottomSeries.forEach(
+    (s, i) => svg.append("g").call(xAxis, s, height - marginBottom + axisSlot * i)
+  );
+  topSeries.forEach((s, i) => svg.append("g").call(xAxis, s, marginTop - axisSlot * i));
+  const gy = svg.append("g").call(yAxis, y2);
+  verticalAxisTitle(svg, vert.label, Math.max(14, marginTop - 6));
+  const seriesPaths = svg.append("g").selectAll("path").data(series, (s) => s.key).join("path").attr("clip-path", `url(#${clipId})`).attr("fill", "none").attr("stroke", (s) => s.color).attr("stroke-width", 1).attr("d", (s) => lineFor(s.x, s.values, vertical, y2));
+  const place = (y1) => {
+    gy.call(yAxis, y1);
+    gGrid.call(yGrid, y1);
+    seriesPaths.attr("d", (s) => lineFor(s.x, s.values, vertical, y1));
+  };
+  return {
+    series,
+    seriesByKey: new Map(series.map((s) => [s.key, s])),
+    y: y2,
+    clipId,
+    place
   };
 }
-function profileOverlayLayer(svg, overlays, {
-  names,
-  stripWidth,
-  clipId
+function crosshair(svg, {
+  series,
+  vertical,
+  formatVertical,
+  marginLeft,
+  marginRight,
+  width,
+  currentY
 }) {
-  const overlayG = svg.append("g").attr("clip-path", `url(#${clipId})`).selectAll("g").data(overlays).join("g");
-  const overlayPath = overlayG.append("path").attr("fill", "none").attr("stroke", (o) => o.color ?? "currentColor").attr("stroke-dasharray", (o) => o.dash ?? null).attr("stroke-width", (o) => o.width ?? 1.5);
-  const overlayLabel = overlayG.append("text").attr("font-size", 11).attr("fill", (o) => o.color ?? "currentColor").call(haloText).text((o) => o.label ?? "");
-  return (y1, { centers, distX }, t) => {
-    const firstVertex = (o) => {
-      if (o.levels) {
-        const i = names.findIndex((name) => o.levels[name] != null);
-        return i < 0 ? null : [centers[i] - stripWidth / 2, o.levels[names[i]]];
-      }
-      const p = (o.points ?? []).find((p2) => p2[0] != null && p2[1] != null);
-      return p ? [distX(p[0]), p[1]] : null;
-    };
-    const overlayLine = (o) => {
-      if (o.levels) {
-        let d = "";
-        let connected = false;
-        names.forEach((name, i) => {
-          const v = o.levels[name];
-          if (v == null) {
-            if (v === null) {
-              connected = false;
-            }
-            return;
-          }
-          const left2 = centers[i] - stripWidth / 2;
-          d += `${connected ? "L" : "M"}${left2},${y1(v)}H${left2 + stripWidth}`;
-          connected = true;
-        });
-        return d || null;
-      }
-      return line().defined((p) => p[0] != null && p[1] != null).x((p) => distX(p[0])).y((p) => y1(p[1]))(o.points ?? []);
-    };
-    const labelX = (o) => {
-      const p = firstVertex(o);
-      return p ? p[0] + 4 : 0;
-    };
-    const labelY = (o) => {
-      const p = firstVertex(o);
-      return p ? y1(p[1]) - 5 : 0;
-    };
-    if (t) {
-      overlayPath.transition(t).attr("d", overlayLine);
-      overlayLabel.transition(t).attr("x", labelX).attr("y", labelY);
-    } else {
-      overlayPath.attr("d", overlayLine);
-      overlayLabel.attr("x", labelX).attr("y", labelY).attr("display", (o) => firstVertex(o) ? null : "none");
+  const formatValue = format(".2f");
+  const rig = focusRig(svg, { marginLeft, ruleX2: width - marginRight });
+  const dots = rig.focus.selectAll("circle").data(series).join("circle").attr("r", 2.5).attr("fill", (s) => s.color);
+  const readouts = rig.focus.selectAll("text.readout").data(series).join("text").attr("class", "readout").attr("x", width - marginRight).attr("y", (_, i) => (i - (series.length - 1) / 2) * 14).attr("dy", "0.32em").attr("text-anchor", "start").attr("font-size", 12).attr("fill", (s) => s.color).call(haloText);
+  const bisectorDescend = bisector((d, x2) => x2 - d);
+  const bisectVertical = vertical[0] <= vertical[vertical.length - 1] ? (value) => bisectCenter(vertical, value) : (value) => bisectorDescend.center(vertical, value);
+  function pointermoved(event) {
+    const zy = currentY();
+    const [, ym] = pointer(event);
+    const i = bisectVertical(zy.invert(ym));
+    if (vertical[i] == null) {
+      rig.hide();
+      return;
     }
+    rig.show(zy(vertical[i]));
+    rig.readout.text(`${formatVertical(vertical[i])} m`);
+    dots.attr("display", (s) => s.values[i] == null ? "none" : null).attr("cx", (s) => s.values[i] == null ? 0 : s.x(s.values[i]));
+    readouts.text((s) => s.values[i] == null ? "" : `${s.label} ${formatValue(s.values[i])}`);
+  }
+  svg.on("pointerenter pointermove", pointermoved).on("pointerleave", rig.hide);
+}
+function overlayLayer(svg, overlays, { seriesByKey, clipId }) {
+  const overlayPath = (o, y1) => {
+    const s = seriesByKey.get(o.channel);
+    if (!s) {
+      return null;
+    }
+    return line().defined((p) => p[0] != null && p[1] != null).x((p) => s.x(p[0])).y((p) => y1(p[1]))(o.points ?? []);
   };
+  const paths = svg.append("g").attr("clip-path", `url(#${clipId})`).selectAll("path").data(overlays).join("path").attr("fill", "none").attr("stroke", (o) => o.color ?? "currentColor").attr("stroke-width", (o) => o.width ?? 1.5).attr("stroke-dasharray", (o) => o.dash ?? "6 4");
+  return (y1) => paths.attr("d", (o) => overlayPath(o, y1));
 }
 const verticalDefaults = {
   depth: { label: "depth [m]", up: false, format: ".2f" },
@@ -4244,87 +4046,6 @@ function resolveVertical(raw, fallbackKey) {
       Object.entries(spec).filter(([, v]) => v != null)
     )
   };
-}
-function stripLayout({
-  distances,
-  stripWidth,
-  stripGap,
-  width,
-  marginLeft,
-  marginRight
-}) {
-  const n = distances.length;
-  const span = distances[n - 1] - distances[0];
-  const pitch = stripWidth + stripGap;
-  const groups = [];
-  distances.forEach((d, i) => {
-    const last = groups[groups.length - 1];
-    if (last && last.dist === d) {
-      last.index.push(i);
-    } else {
-      groups.push({ dist: d, index: [i] });
-    }
-  });
-  const halfExtent = (g) => (g.index.length - 1) * pitch / 2;
-  let minScale = 0;
-  for (let j = 1; j < groups.length; j += 1) {
-    const need = halfExtent(groups[j - 1]) + halfExtent(groups[j]) + pitch;
-    minScale = Math.max(minScale, need / (groups[j].dist - groups[j - 1].dist));
-  }
-  const endPad = halfExtent(groups[0]) + halfExtent(groups[groups.length - 1]);
-  const chrome = marginLeft + marginRight + stripWidth;
-  const trueScaleWidth = Math.ceil(chrome + endPad + minScale * span);
-  const packedWidth = chrome + (n - 1) * pitch;
-  const svgWidth = Math.max(width, trueScaleWidth, packedWidth);
-  const innerLeft = marginLeft + stripWidth / 2;
-  const innerRight = svgWidth - marginRight - stripWidth / 2;
-  const mid = (innerLeft + innerRight) / 2;
-  const anchorX = span === 0 ? () => mid : linear().domain([distances[0], distances[n - 1]]).range([
-    innerLeft + halfExtent(groups[0]),
-    innerRight - halfExtent(groups[groups.length - 1])
-  ]);
-  const trueCenters = Array.from({ length: n });
-  for (const g of groups) {
-    const a = anchorX(g.dist);
-    g.index.forEach((i, k) => {
-      trueCenters[i] = a + (k - (g.index.length - 1) / 2) * pitch;
-    });
-  }
-  const equalSpan = Math.max(width - chrome, (n - 1) * pitch);
-  const equalSvgWidth = chrome + equalSpan;
-  const equalCenters = n === 1 ? [mid] : distances.map((_, i) => innerLeft + i * equalSpan / (n - 1));
-  const distToX = (centers) => {
-    const domain = [];
-    const range = [];
-    for (let j = 0; j < n; ) {
-      let k = j;
-      let sum = 0;
-      while (k < n && distances[k] === distances[j]) {
-        sum += centers[k];
-        k += 1;
-      }
-      domain.push(distances[j]);
-      range.push(sum / (k - j));
-      j = k;
-    }
-    return domain.length >= 2 ? linear().domain(domain).range(range) : () => mid;
-  };
-  const trueDistX = distToX(trueCenters);
-  const equalDistX = distToX(equalCenters);
-  let equal = false;
-  const layout = {
-    distances,
-    span,
-    groups,
-    innerLeft,
-    innerRight,
-    anchorX,
-    centers: () => equal ? equalCenters : trueCenters,
-    width: () => equal ? equalSvgWidth : svgWidth,
-    distX: () => equal ? equalDistX : trueDistX
-  };
-  layout.equalSpacing = ((on) => on === void 0 ? equal : (equal = on, layout));
-  return layout;
 }
 function verticalZoom() {
   let y2;
@@ -4404,302 +4125,70 @@ function verticalZoom() {
   vz.currentScale = () => zy ?? y2;
   return vz;
 }
-const profileViewer = {
-  render({ model, el, signal: hostSignal }) {
-    const controller = new AbortController();
-    hostSignal?.addEventListener("abort", () => controller.abort(), {
-      once: true
-    });
-    const signal = controller.signal;
-    const cpts = [...model.get("cpts") ?? []].sort(
-      (a, b) => ascending$1(a.distance, b.distance)
-    );
-    const vert = resolveVertical(model.get("verticalKey"), "nap");
-    const axisLimits = model.get("axisLimits") ?? {};
-    const annotations = model.get("annotations") ?? [];
-    const overlays = model.get("overlays") ?? [];
-    const stripWidth = model.get("stripWidth") || 90;
-    const width = model.get("width") || 700;
-    const height = model.get("height") || 500;
-    const vertOf = (c) => c.data[vert.key] ?? [];
-    const allVert = cpts.flatMap(vertOf).filter((v) => v != null);
-    const requested = model.get("channels") ?? [];
-    const series = (requested.length ? requested : ["coneResistance"]).map((c, i) => {
-      const merged = resolveChannel(c, Tableau10[i % 10]);
-      return {
-        ...merged,
-        x: makeXScale(
-          cpts.flatMap((cpt) => cpt.data[merged.key] ?? []),
-          merged.side === "top" ? [stripWidth, 0] : [0, stripWidth],
-          axisLimits[merged.key]
-        )
-      };
-    }).filter(
-      (s) => s.x !== null
-    );
-    if (!cpts.length || !allVert.length || !series.length) {
-      select(el).append("div").text("no plottable CPT data");
-      return;
-    }
-    const marginLeft = 70;
-    const marginRight = 40;
-    const bottomSeries = series.filter((s) => s.side === "bottom");
-    const topSeries = series.filter((s) => s.side === "top");
-    const nameBand = 28;
-    const marginTop = nameBand + axisSlot * topSeries.length;
-    const bottomSlots = Math.max(bottomSeries.length - 1, 0);
-    const marginBottom = 62 + axisSlot * bottomSlots;
-    const yBottom = height - marginBottom;
-    const slotY = (s) => s.side === "top" ? marginTop - axisSlot * topSeries.indexOf(s) : yBottom + axisSlot * bottomSeries.indexOf(s);
-    const ordered = cpts.map(vertOf).find((v) => v.filter((s) => s != null).length >= 2);
-    let descending2 = vert.up;
-    if (ordered) {
-      const first = ordered.find((s) => s != null);
-      const last = [...ordered].reverse().find((s) => s != null);
-      if (first !== last) {
-        descending2 = first > last;
-      }
-    }
-    const lo = min$1(allVert);
-    const hi = max$1(allVert);
-    const y2 = makeVerticalScale(
-      descending2 ? [hi, lo] : [lo, hi],
-      [marginTop, yBottom],
-      axisLimits[vert.key]
-    );
-    const n = cpts.length;
-    const distances = cpts.map((c) => c.distance);
-    const layout = stripLayout({
-      distances,
-      stripWidth,
-      stripGap: 10,
-      width,
-      marginLeft,
-      marginRight
-    }).equalSpacing(model.get("equalSpacing") ?? false);
-    const plotRight = () => layout.width() - marginRight;
-    const vz = verticalZoom().scale(y2).xExtent(() => [marginLeft, plotRight()]);
-    const toolbar = select(el).append("div").style("font", "12px system-ui, sans-serif").style("margin", "0 0 4px 2px");
-    const toggle = toolbar.append("label").style("cursor", "pointer");
-    const checkbox = toggle.append("input").attr("type", "checkbox").style("vertical-align", "-2px").property("checked", layout.equalSpacing()).on("change", (event) => {
-      model.set(
-        "equalSpacing",
-        event.currentTarget.checked
-      );
-      model.save_changes();
-    });
-    toggle.append("span").text(" equal spacing");
-    const legendEntries = [];
-    const seenLabels = /* @__PURE__ */ new Set();
-    for (const c of cpts) {
-      for (const l of c.layers ?? []) {
-        if (!l.label || seenLabels.has(l.label)) continue;
-        seenLabels.add(l.label);
-        legendEntries.push({ label: l.label, color: l.color ?? "#999" });
-      }
-    }
-    if (legendEntries.length) {
-      const item = select(el).append("div").style("font", "11px system-ui, sans-serif").style("display", "flex").style("flex-wrap", "wrap").style("gap", "2px 10px").style("margin", "0 0 4px 2px").selectAll("span.legend-item").data(legendEntries).join("span").attr("class", "legend-item").style("white-space", "nowrap");
-      item.append("span").style("display", "inline-block").style("width", "10px").style("height", "10px").style("margin-right", "4px").style("vertical-align", "-1px").style("background", (e) => e.color);
-      item.append("span").text((e) => e.label);
-    }
-    const minimapHost = select(el).append("div");
-    const wrap = select(el).append("div").style("position", "relative").style("max-width", "100%");
-    const scroller = wrap.append("div").style("max-width", "100%").style("overflow-x", "auto");
-    const svg = scroller.append("svg").attr("viewBox", [0, 0, layout.width(), height].join(",")).attr("width", layout.width()).attr("height", height).style("display", "block").style("user-select", "none").style("-webkit-user-select", "none");
-    const clipId = plotClip(svg, "profile-clip", {
-      x: marginLeft,
-      y: marginTop,
-      width: layout.width() - marginLeft - marginRight,
-      height: yBottom - marginTop
-    });
-    const stripClipId = plotClip(svg, "strip-clip", {
-      x: 0,
-      y: marginTop,
-      width: stripWidth,
-      height: yBottom - marginTop
-    });
-    const pinnedLeft = wrap.append("svg").attr("width", marginLeft + 1).attr("height", height).style("position", "absolute").style("left", "0").style("top", "0").style("pointer-events", "none");
-    const yAxis = yAxisFor(marginLeft, height);
-    const yAxisR = yAxisRightFor(plotRight, height);
-    const yGrid = yGridFor({
-      x1: marginLeft,
-      x2: plotRight,
-      height
-    });
-    const gGrid = svg.append("g");
-    const gy = svg.append("g");
-    const gyR = svg.append("g");
-    const gyPinned = pinnedLeft.append("g");
-    const haloTicks = (g) => g.selectAll("text").call(haloText);
-    const placeAxes = (y1) => {
-      gy.call(yAxis, y1);
-      gyR.call(yAxisR, y1);
-      haloTicks(gyPinned.call(yAxis, y1));
-    };
-    verticalAxisTitle(svg, vert.label);
-    verticalAxisTitle(pinnedLeft, vert.label);
-    pinnedLeft.selectAll("text").call(haloText);
-    svg.selectAll("text.channel-label").data(series).join("text").attr("class", "channel-label").attr("x", 0).attr("y", (s) => slotY(s) + (s.side === "top" ? -9 : 9)).attr("dy", (s) => s.side === "top" ? "0em" : "0.71em").attr("text-anchor", "start").attr("font-size", 10).attr("font-weight", "bold").attr("fill", (s) => s.color).text(channelTitle);
-    const chainY = yBottom + axisSlot * bottomSlots + 32;
-    const gChain = svg.append("g").attr("transform", `translate(0,${chainY})`);
-    const chainageAxis = chainageAxisFor(layout);
-    gChain.call(chainageAxis);
-    if (n >= 2) {
-      svg.append("text").attr("x", 0).attr("y", chainY + 9).attr("dy", "0.71em").attr("text-anchor", "start").attr("font-size", 10).attr("font-weight", "bold").attr("fill", "currentColor").text("distance [m]");
-    }
-    const strip = svg.selectAll("g.strip").data(cpts).join("g").attr("class", "strip");
-    const stripLayer = strip.append("g").attr("clip-path", `url(#${stripClipId})`).selectAll("rect").data((c) => c.layers ?? []).join("rect").attr("x", 0).attr("width", stripWidth).attr("fill", (l) => l.color ?? "#999").attr("fill-opacity", 0.8).style("stroke", "Canvas").attr("stroke-width", 0.5);
-    const placeLayers = (y1) => stripLayer.attr("y", (l) => Math.min(y1(l.top), y1(l.bottom))).attr("height", (l) => Math.abs(y1(l.bottom) - y1(l.top)));
-    strip.append("rect").attr("class", "frame").attr("x", 0).attr("y", marginTop).attr("width", stripWidth).attr("height", yBottom - marginTop).attr("fill", "transparent");
-    strip.selectAll("g.channel-axis").data(() => series).join("g").attr("class", "channel-axis").attr("transform", (s) => `translate(0,${slotY(s)})`).each(function(s) {
-      select(this).call(channelAxis, s, {
-        ticks: Math.max(2, stripWidth / 45),
-        tickSizeOuter: 0
-      });
-    });
-    const stripPath = strip.append("g").attr("clip-path", `url(#${stripClipId})`).selectAll("path").data((c) => series.map((s) => ({ c, s }))).join("path").attr("fill", "none").attr("stroke", ({ s }) => s.color).attr("stroke-width", 1);
-    const stripName = strip.append("text").attr("class", "name").attr("x", stripWidth / 2).attr("y", nameBand - 8).attr("text-anchor", "middle").attr("font-size", 11).text((d) => d.name);
-    const placeTraces = (y1) => stripPath.attr("d", ({ c, s }) => lineFor(s.x, c.data[s.key] ?? [], vertOf(c), y1));
-    const placeProfileOverlays = profileOverlayLayer(svg, overlays, {
-      names: cpts.map((c) => c.name),
-      stripWidth,
-      clipId
-    });
-    const placeOverlays = (y1, t) => placeProfileOverlays(
-      y1,
-      { centers: layout.centers(), distX: layout.distX() },
-      t
-    );
-    const placeAnnotations = annotationLayer(svg, annotations, {
-      clipId,
-      marginLeft,
-      marginRight,
-      width: () => layout.width()
-    });
-    const applySelection = () => {
-      const selected = model.get("selected");
-      strip.select("rect.frame").attr("stroke", (d) => d.name === selected ? "currentColor" : "#bbb").attr("stroke-width", (d) => d.name === selected ? 1.5 : 1);
-      stripName.attr("fill", (d) => d.name === selected ? "currentColor" : "#555").attr("font-weight", (d) => d.name === selected ? "bold" : null);
-    };
-    applySelection();
-    const placeMinimap = minimap(minimapHost, scroller.node(), {
-      stripWidth,
-      signal
-    });
-    const placeStrips = (animate, y1) => {
-      const centers = layout.centers();
-      const curWidth = layout.width();
-      svg.select(`#${clipId} rect`).attr("width", curWidth - marginLeft - marginRight);
-      const transform = (_, i) => `translate(${centers[i] - stripWidth / 2},0)`;
-      if (animate) {
-        const t = svg.transition().duration(500);
-        t.attr("width", curWidth).attr(
-          "viewBox",
-          [0, 0, curWidth, height].join(",")
-        );
-        strip.transition(t).attr("transform", transform);
-        gGrid.selectAll("line").transition(t).attr("x2", curWidth - marginRight);
-        gyR.transition(t).attr("transform", `translate(${curWidth - marginRight},0)`);
-        gChain.transition(t).call(chainageAxis);
-        placeOverlays(y1, t);
-      } else {
-        svg.attr("width", curWidth).attr("viewBox", [0, 0, curWidth, height].join(","));
-        strip.attr("transform", transform);
-        gGrid.call(yGrid, y1);
-        gyR.call(yAxisR, y1);
-        gChain.call(chainageAxis);
-        placeOverlays(y1);
-      }
-      placeAnnotations(y1);
-      placeMinimap({ centers, contentWidth: curWidth });
-    };
-    const rig = focusRig(svg, {
-      marginLeft,
-      ruleX2: plotRight,
-      readoutHost: pinnedLeft
-    });
-    placeStrips(false, y2);
-    const formatVertical = format(vert.format);
-    const stripIndexAt = (px) => {
-      const i = layout.centers().findIndex((c) => Math.abs(px - c) <= stripWidth / 2);
-      return i === -1 ? null : i;
-    };
-    const formatValue = format(".2f");
-    const bisectorDescend = bisector((d, x2) => x2 - d);
-    const bisectStrip = (vertical, value) => descending2 ? bisectorDescend.center(vertical, value) : bisectCenter(vertical, value);
-    const valueGroup = rig.focus.append("g").attr("display", "none");
-    const placeStripValues = (si, py) => {
-      const zy = vz.currentScale();
-      const c = si == null ? null : cpts[si];
-      const vertical = c ? vertOf(c) : [];
-      const i = c ? bisectStrip(vertical, zy.invert(py)) : 0;
-      const vi = vertical[i];
-      const entries = c && vi != null && Math.abs(zy(vi) - py) <= 8 ? series.map((s) => ({ s, v: c.data[s.key]?.[i] })).filter((e) => e.v != null) : [];
-      if (si == null || !entries.length) {
-        valueGroup.attr("display", "none");
-        return;
-      }
-      const centers = layout.centers();
-      const flip = centers[si] + stripWidth / 2 + 76 > layout.width();
-      const x2 = centers[si] + (stripWidth / 2 + 6) * (flip ? -1 : 1);
-      valueGroup.attr("display", null).selectAll("text").data(entries).join("text").attr("x", x2).attr("y", (_, i2) => (i2 - (entries.length - 1) / 2) * 14).attr("dy", "0.32em").attr("text-anchor", flip ? "end" : "start").attr("font-size", 12).attr("fill", ({ s }) => s.color).call(haloText).text(({ s, v }) => `${s.label} ${formatValue(v)}`);
-    };
-    svg.on("pointerenter pointermove", (event) => {
-      const [px, py] = pointer(event);
-      const inPlot = py >= marginTop && py <= yBottom && px >= marginLeft && px <= plotRight();
-      const si = inPlot ? stripIndexAt(px) : null;
-      svg.style("cursor", () => si != null ? "pointer" : null);
-      if (!inPlot) {
-        rig.hide();
-        return;
-      }
-      rig.show(py);
-      rig.readout.text(`${formatVertical(vz.currentScale().invert(py))} m`);
-      placeStripValues(si, py);
-    });
-    svg.on("pointerleave", () => {
-      rig.hide();
-      svg.style("cursor", null);
-    });
-    svg.on("click", (event) => {
-      const [px, py] = pointer(event);
-      if (py < nameBand - 20 || py > yBottom) {
-        return;
-      }
-      const i = stripIndexAt(px);
-      if (i == null) {
-        return;
-      }
-      const name = cpts[i].name;
-      model.set("selected", model.get("selected") === name ? "" : name);
-      model.save_changes();
-    });
-    svg.call(
-      vz.placers([
-        placeAxes,
-        (y1) => gGrid.call(yGrid, y1),
-        placeLayers,
-        placeTraces,
-        placeOverlays,
-        placeAnnotations
-      ])
-    );
-    const onSelected = () => applySelection();
-    const onSpacing = () => {
-      layout.equalSpacing(model.get("equalSpacing") ?? false);
-      checkbox.property("checked", layout.equalSpacing());
-      placeStrips(true, vz.currentScale());
-    };
-    model.on("change:selected", onSelected);
-    model.on("change:equalSpacing", onSpacing);
-    signal.addEventListener("abort", () => {
-      model.off("change:selected", onSelected);
-      model.off("change:equalSpacing", onSpacing);
-    });
-    return () => controller.abort();
+const DEFAULT_WIDTH = 400;
+const DEFAULT_HEIGHT = 800;
+function readCore(model) {
+  const cptData = model.get("cptData");
+  const vert = resolveVertical(model.get("verticalKey"), "depth");
+  return {
+    cptData,
+    vert,
+    vertical: cptData[vert.key] ?? [],
+    formatVertical: format(vert.format),
+    axisLimits: model.get("axisLimits") ?? {},
+    annotations: model.get("annotations") ?? [],
+    overlays: model.get("overlays") ?? [],
+    channels: model.get("channels") ?? [],
+    width: model.get("width") || DEFAULT_WIDTH,
+    height: model.get("height") || DEFAULT_HEIGHT
+  };
+}
+function renderCore(svg, core, {
+  margin,
+  gridLeft,
+  gridRight
+}) {
+  const { series, seriesByKey, y: y2, clipId, place } = cptChart(svg, {
+    cptData: core.cptData,
+    vertical: core.vertical,
+    vert: core.vert,
+    channels: core.channels,
+    axisLimits: core.axisLimits,
+    width: core.width,
+    height: core.height,
+    margin,
+    gridLeft,
+    gridRight
+  });
+  const [plotTop, plotBottom] = y2.range();
+  const vz = verticalZoom().scale(y2).xExtent([margin.left, core.width - margin.right]);
+  const placeOverlays = overlayLayer(svg, core.overlays, { seriesByKey, clipId });
+  const placeAnnotations = annotationLayer(svg, core.annotations, {
+    clipId,
+    marginLeft: margin.left,
+    marginRight: margin.right,
+    width: core.width
+  });
+  crosshair(svg, {
+    series,
+    vertical: core.vertical,
+    formatVertical: core.formatVertical,
+    marginLeft: margin.left,
+    marginRight: margin.right,
+    width: core.width,
+    currentY: vz.currentScale
+  });
+  return { vz, plotTop, plotBottom, placers: [place, placeOverlays, placeAnnotations] };
+}
+const cptLog = {
+  render({ model, el }) {
+    const core = readCore(model);
+    const margin = { left: 70, right: 50, top: 10, bottom: 10 };
+    const svg = select(el).append("svg").attr("viewBox", [0, 0, core.width, core.height].join(",")).attr("width", core.width).attr("height", core.height).style("max-width", "100%").style("height", "auto").style("user-select", "none").style("-webkit-user-select", "none");
+    const { vz, placers } = renderCore(svg, core, { margin });
+    svg.call(vz.placers(placers));
   }
 };
 export {
-  profileViewer as default
+  cptLog as default
 };

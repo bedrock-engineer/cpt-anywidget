@@ -11,7 +11,8 @@
     "fmt": "oxfmt",
     "fmt:check": "oxfmt --check",
     "release": "release-it",
-    "build": "tsc && rm -rf src/cpt_anywidget/static && ENTRY=js/cpt-viewer.ts vite build && ENTRY=js/borehole-viewer.ts vite build && ENTRY=js/profile-viewer.ts vite build"
+    "demo": "node demo/record.mjs",
+    "build": "tsc && rm -rf src/cpt_anywidget/static && ENTRY=js/cpt-viewer.ts vite build && ENTRY=js/cpt-log.ts vite build && ENTRY=js/borehole-viewer.ts vite build && ENTRY=js/profile-viewer.ts vite build"
   },
   "repository": {
     "type": "git",
@@ -50,6 +51,7 @@
     "jsdom": "^30.0.1",
     "oxfmt": "^0.63.0",
     "oxlint": "^1.77.0",
+    "playwright": "^1.62.1",
     "release-it": "^21.0.2",
     "typescript": "^7.0.2",
     "vite": "^7.3.6",

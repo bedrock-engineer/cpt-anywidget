@@ -1,5 +1,13 @@
 import { describe, expect, it } from "vitest";
-import { assignClass, dragBoundary, merge, minThickness, seedLayer, splitAt } from "./layer-edits";
+import {
+  assignClass,
+  dragBoundary,
+  merge,
+  minThickness,
+  seedFrom,
+  seedLayer,
+  splitAt,
+} from "./layer-edits";
 import type { Layer } from "./types";
 
 // one fixture per vertical orientation: depth is positive down
@@ -23,6 +31,23 @@ describe("seedLayer", () => {
 
   it("keeps the NAP orientation (top > bottom)", () => {
     expect(seedLayer(3, -6)).toEqual([{ top: 3, bottom: -6 }]);
+  });
+});
+
+describe("seedFrom", () => {
+  it("copies an interpretation's layers, labels and colors and all", () => {
+    const source: Layer[] = [
+      { top: 0, bottom: 2, label: "silt mix", color: "#b5a642" },
+      { top: 2, bottom: 5, label: "sand", color: "#f4e04d" },
+    ];
+    expect(seedFrom(source)).toEqual(source);
+  });
+
+  it("returns fresh layer objects so later edits can't mutate the source", () => {
+    const source: Layer[] = [{ top: 0, bottom: 2, label: "clay" }];
+    const seeded = seedFrom(source);
+    seeded[0].bottom = 1;
+    expect(source[0].bottom).toBe(2);
   });
 });
 

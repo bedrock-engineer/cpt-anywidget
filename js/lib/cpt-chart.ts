@@ -49,6 +49,10 @@ interface CptChartProps {
     top: number;
     bottom: number;
   };
+  /** left edge of the horizontal gridlines — a widget with a left-side
+      column (the borehole) extends them across it; defaults to the plot
+      edge (margin.left) */
+  gridLeft?: number;
   /** right edge of the horizontal gridlines — the widget extends them
       across its layer columns; defaults to the plot edge */
   gridRight?: number;
@@ -65,6 +69,7 @@ export function cptChart(
     width,
     height,
     margin,
+    gridLeft,
     gridRight,
   }: CptChartProps,
 ): CptChart {
@@ -128,7 +133,7 @@ export function cptChart(
   const yAxis = yAxisFor(margin.left, height);
 
   const yGrid = yGridFor({
-    x1: margin.left,
+    x1: gridLeft ?? margin.left,
     x2: gridRight ?? width - margin.right,
     height,
   });
@@ -152,7 +157,10 @@ export function cptChart(
 
   const gy = svg.append("g").call(yAxis, y);
 
-  verticalAxisTitle(svg, vert.label);
+  // sit the title just above the axis top; when the top margin is grown
+  // (the CPT viewer's rotated headers) this keeps it by the axis instead
+  // of stranded near the svg top, but never higher than its default
+  verticalAxisTitle(svg, vert.label, Math.max(14, marginTop - 6));
 
   const seriesPaths = svg
     .append("g")
@@ -163,12 +171,12 @@ export function cptChart(
     .attr("fill", "none")
     .attr("stroke", (s) => s.color)
     .attr("stroke-width", 1)
-    .attr("d", (s) => lineFor(s, vertical, y));
+    .attr("d", (s) => lineFor(s.x, s.values, vertical, y));
 
   const place: Placer = (y1) => {
     gy.call(yAxis, y1);
     gGrid.call(yGrid, y1);
-    seriesPaths.attr("d", (s) => lineFor(s, vertical, y1));
+    seriesPaths.attr("d", (s) => lineFor(s.x, s.values, vertical, y1));
   };
 
   return {

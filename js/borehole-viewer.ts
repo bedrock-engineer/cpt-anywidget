@@ -202,7 +202,7 @@ export default {
 
       boundaryLine.attr("y1", (b) => y1(b)).attr("y2", (b) => y1(b));
 
-      placeDepthLabels(gBoundaries, y1, "right");
+      placeDepthLabels(gBoundaries, y1);
 
       soilLabel
         .attr("y", (l) => (y1(l.top) + y1(l.bottom)) / 2)

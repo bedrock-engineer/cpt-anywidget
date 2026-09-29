@@ -1,6 +1,13 @@
 import type { RenderProps } from "@anywidget/types";
 import * as d3 from "./lib/d3";
-import { axisSlot, channelAxis, channelTitle, makeXScale, resolveChannel } from "./lib/channels";
+import {
+  axisSlot,
+  channelAxis,
+  channelTitle,
+  lineFor,
+  makeXScale,
+  resolveChannel,
+} from "./lib/channels";
 import { annotationLayer } from "./lib/annotations";
 import { chainageAxisFor } from "./lib/chainage-axis";
 import {
@@ -467,22 +474,11 @@ export default {
       .attr("font-size", 11)
       .text((d) => d.name);
 
-    const tracePath = (
-      c: ProfileCpt,
-      s: (typeof series)[number],
-      y1: VerticalScale,
-    ) => {
-      const values = c.data[s.key] ?? [];
-      const vertical = vertOf(c);
-      return d3
-        .line<number | null>()
-        .defined((_, i) => values[i] != null && vertical[i] != null)
-        .x((_, i) => s.x(values[i]!))
-        .y((_, i) => y1(vertical[i]!))(values);
-    };
-
+    // each strip's curves use the channel's shared x scale (so strips
+    // compare) with that strip's own values and vertical column — the
+    // same generator the single-sounding chart uses
     const placeTraces = (y1: VerticalScale) =>
-      stripPath.attr("d", ({ c, s }) => tracePath(c, s, y1));
+      stripPath.attr("d", ({ c, s }) => lineFor(s.x, c.data[s.key] ?? [], vertOf(c), y1));
 
     // profile-space overlays (groundwater level, surface line, ...) span
     // the strips in (chainage, vertical) coordinates; see

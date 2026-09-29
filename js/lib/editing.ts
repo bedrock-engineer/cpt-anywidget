@@ -1,6 +1,13 @@
 import * as d3 from "./d3";
 import { laneTarget } from "./lane-target";
-import { assignClass, dragBoundary, merge, seedLayer, splitAt } from "./layer-edits";
+import {
+  assignClass,
+  dragBoundary,
+  merge,
+  seedFrom as seedFromLayers,
+  seedLayer,
+  splitAt,
+} from "./layer-edits";
 import { labelMargin, placeLayerColumn } from "./layers";
 import { pieGesture } from "./pie-gesture";
 import type { PieCommand } from "./pie-gesture";
@@ -53,9 +60,16 @@ interface EditableColumn {
 // pointer events to the decisions, executes the returned commands,
 // swaps in the returned stack when the reference changed (rebinding
 // the index-keyed joins), and syncs copies back through the model.
-// Returns the handle placer for the zoom loop — layer-rect placement
-// rides the caller's shared column placer. currentY() returns the
-// live (zoomed) scale
+// currentY() returns the live (zoomed) scale.
+// Returns { place, seedFrom }: place is the handle placer for the zoom
+// loop (layer-rect placement rides the caller's shared column placer),
+// seedFrom replaces the stack with a copy of another layering — the
+// caller wires it to the interpretation columns
+export interface EditableColumnApi {
+  place: Placer;
+  seedFrom: (source: Layer[]) => void;
+}
+
 export function editableColumn({
   model,
   el,
@@ -72,7 +86,7 @@ export function editableColumn({
   verticalExtent,
   layerColumn,
   currentY,
-}: EditableColumn): Placer {
+}: EditableColumn): EditableColumnApi {
   // the current edited stack. Operations replace it wholesale; the
   // joins key by index and placement reads bound datums, so a rebind
   // after each accepted operation keeps everything reading fresh
@@ -155,10 +169,14 @@ export function editableColumn({
     // grays derived from the inherited text color, not literals, so the
     // lane reads as a subtle gutter on dark pages too
     .attr("fill", "currentColor")
-    .attr("fill-opacity", 0.05)
+    .attr("fill-opacity", 0.07)
     .attr("stroke", "currentColor")
-    .attr("stroke-opacity", 0.25)
+    .attr("stroke-opacity", 0.3)
     .attr("cursor", "pointer");
+
+  laneHit
+    .append("title")
+    .text("Click to split a layer here; click near a boundary to merge");
 
   // previews sit over the hit rect; pointer-events off so they can't
   // steal the hover that placed them
@@ -179,6 +197,27 @@ export function editableColumn({
     .attr("font-weight", "bold")
     .attr("pointer-events", "none")
     .attr("display", "none");
+
+  // persistent idle affordance: a faint + at the lane's midpoint so the
+  // gutter reads as editable before the pointer is over it. The live
+  // +/× preview replaces it while hovering; hidden in the empty state
+  // (no layers to split, and the body's own placeholder owns that cue)
+  const laneIdle = laneG
+    .append("text")
+    .attr("x", laneX + laneWidth / 2)
+    .attr("y", (plotTop + plotBottom) / 2)
+    .attr("text-anchor", "middle")
+    .attr("dy", "0.32em")
+    .attr("font-size", 12)
+    .attr("font-weight", "bold")
+    .attr("fill", "currentColor")
+    .attr("fill-opacity", 0.35)
+    .attr("pointer-events", "none")
+    .text("+");
+
+  // gated on layers.length so a pointerleave never revives it while empty
+  const showLaneIdle = (show: boolean) =>
+    laneIdle.attr("display", show && layers.length ? null : "none");
 
   const hideLanePreview = () => {
     laneLine.attr("display", "none");
@@ -212,8 +251,16 @@ export function editableColumn({
   };
 
   laneHit
+    .on("pointerenter", () => {
+      showLaneIdle(false);
+      laneHit.attr("fill-opacity", 0.12);
+    })
     .on("pointermove", (event: PointerEvent) => previewLane(d3.pointer(event)[1]))
-    .on("pointerleave", hideLanePreview)
+    .on("pointerleave", () => {
+      hideLanePreview();
+      laneHit.attr("fill-opacity", 0.07);
+      showLaneIdle(true);
+    })
     // rapid successive lane clicks must not reach the svg's dblclick
     // zoom reset
     .on("dblclick", (event: MouseEvent) => event.stopPropagation())
@@ -524,6 +571,7 @@ export function editableColumn({
     handlesG.call(boundaryHandles);
 
     emptyHint.attr("display", layers.length ? "none" : null);
+    showLaneIdle(true);
   };
 
   // full rebuild after a structural edit (split/merge): re-join layers
@@ -533,10 +581,19 @@ export function editableColumn({
     placeEditColumn(currentY());
   };
 
+  // seed from an interpretation: replace the whole stack with a copy of
+  // its layers (a full re-seed, discarding any current edits), then
+  // re-join and sync like any structural edit
+  const seedFrom = (source: Layer[]) => {
+    layers = seedFromLayers(source);
+    updateEditColumn();
+    syncEditedLayers();
+  };
+
   // join only: currentY() closes over the zoom drive, which the caller
   // constructs after this returns — its initial placement (this column
   // is in the placers array) does the first place
   joinEditColumn();
 
-  return placeHandles;
+  return { place: placeHandles, seedFrom };
 }

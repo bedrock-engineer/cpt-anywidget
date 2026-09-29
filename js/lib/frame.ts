@@ -68,15 +68,18 @@ export const yGridFor =
       .attr("y2", (d) => 0.5 + y1(d));
 
 /** vertical-axis title, top-left; outside yAxis so zoom redraws don't
-    duplicate it */
+    duplicate it. y defaults near the svg top, but a caller whose top
+    margin is grown (the CPT viewer reserves it for rotated column
+    headers) passes a y just above the axis so the title tracks it */
 export function verticalAxisTitle(
   svg: AnySelection<SVGSVGElement>,
   label: string,
+  y = 14,
 ): void {
   svg
     .append("text")
     .attr("x", 0)
-    .attr("y", 14)
+    .attr("y", y)
     .attr("fill", "currentColor")
     .attr("text-anchor", "start")
     .attr("font-weight", "bold")

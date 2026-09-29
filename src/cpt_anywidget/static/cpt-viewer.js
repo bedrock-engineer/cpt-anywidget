@@ -4364,6 +4364,49 @@ function hatchDefs(svg, chars) {
   svg.append("defs").selectAll("pattern").data(chars).join("pattern").attr("id", (h) => ids.get(h)).attr("width", 6).attr("height", 6).attr("patternUnits", "userSpaceOnUse").html((h) => HATCH_SHAPE[h]);
   return ids;
 }
+const haloText = (text, strokeWidth = 1.5) => text.style("stroke", "Canvas").attr("stroke-width", strokeWidth).attr("paint-order", "stroke");
+function focusRig(svg, {
+  marginLeft,
+  ruleX2,
+  readoutHost
+}) {
+  const ruleX2Of = typeof ruleX2 === "function" ? ruleX2 : () => ruleX2;
+  const focus = svg.append("g").attr("display", "none").attr("pointer-events", "none");
+  const rule = focus.append("line").attr("x1", marginLeft).attr("x2", ruleX2Of()).attr("stroke", "currentColor").attr("stroke-opacity", 0.3);
+  const readoutGroup = readoutHost ? readoutHost.append("g").attr("display", "none").attr("pointer-events", "none") : focus;
+  const readout = readoutGroup.append("text").attr("x", marginLeft - 8).attr("dy", "0.32em").attr("text-anchor", "end").attr("font-size", 12).attr("font-weight", "bold").attr("fill", "currentColor").call(haloText);
+  const groups = readoutGroup === focus ? [focus] : [focus, readoutGroup];
+  return {
+    focus,
+    readout,
+    show: (ym) => {
+      rule.attr("x2", ruleX2Of());
+      groups.forEach((g) => g.attr("display", null).attr("transform", `translate(0,${ym})`));
+    },
+    hide: () => groups.forEach((g) => g.attr("display", "none"))
+  };
+}
+function annotationLayer(svg, annotations, { clipId, marginLeft, marginRight, width }) {
+  const currentWidth = typeof width === "function" ? width : () => width;
+  const labelAnchor = { left: "start", center: "middle", right: "end" };
+  const annotation = svg.append("g").selectAll("g").data(annotations).join("g");
+  const line2 = annotation.append("line").attr("x1", marginLeft).attr("stroke", (d) => d.color ?? "currentColor").attr("stroke-dasharray", (d) => d.dash ?? "4 3");
+  const label = annotation.append("text").attr("y", (d) => -4 + (d.offset?.[1] ?? 0)).attr("text-anchor", (d) => labelAnchor[d.position ?? "right"]).attr("font-size", 11).attr("fill", (d) => d.color ?? "currentColor").call(haloText).text((d) => d.label ?? "");
+  return (y1) => {
+    const w = currentWidth();
+    const labelX = {
+      left: marginLeft + 6,
+      center: (marginLeft + w - marginRight) / 2,
+      right: w - marginRight - 6
+    };
+    line2.attr("x2", w - marginRight);
+    label.attr(
+      "x",
+      (d) => labelX[d.position ?? "right"] + (d.offset?.[0] ?? 0)
+    );
+    annotation.attr("transform", (d) => `translate(0,${y1(d.at)})`);
+  };
+}
 const channelDefaults = {
   coneResistance: { label: "qc", unit: "MPa", color: "steelblue" },
   localFriction: { label: "fs", unit: "MPa", color: "#e15759" },
@@ -4418,8 +4461,8 @@ function buildSeries({
     };
   }).filter((s) => s.x !== null);
 }
-function lineFor(s, vertical, y1) {
-  return line().defined((_, i) => s.values[i] != null && vertical[i] != null).x((_, i) => s.x(s.values[i])).y((_, i) => y1(vertical[i]))(vertical);
+function lineFor(x2, values, vertical, y1) {
+  return line().defined((_, i) => values[i] != null && vertical[i] != null).x((_, i) => x2(values[i])).y((_, i) => y1(vertical[i]))(vertical);
 }
 function makeVerticalScale(fallback, range2, limits) {
   const y2 = linear().domain(limits ?? fallback).range(range2);
@@ -4430,8 +4473,8 @@ function makeVerticalScale(fallback, range2, limits) {
 }
 const yAxisFor = (marginLeft, height) => (g, y1) => g.attr("transform", `translate(${marginLeft},0)`).call(axisLeft(y1).ticks(height / 60));
 const yGridFor = ({ x1, x2, height }) => (g, y1) => g.attr("stroke", "currentColor").attr("stroke-opacity", 0.1).selectAll("line").data(y1.ticks(height / 60)).join("line").attr("x1", x1).attr("x2", typeof x2 === "function" ? x2() : x2).attr("y1", (d) => 0.5 + y1(d)).attr("y2", (d) => 0.5 + y1(d));
-function verticalAxisTitle(svg, label) {
-  svg.append("text").attr("x", 0).attr("y", 14).attr("fill", "currentColor").attr("text-anchor", "start").attr("font-weight", "bold").text(label);
+function verticalAxisTitle(svg, label, y2 = 14) {
+  svg.append("text").attr("x", 0).attr("y", y2).attr("fill", "currentColor").attr("text-anchor", "start").attr("font-weight", "bold").text(label);
 }
 function plotClip(svg, prefix, { x: x2, y: y2, width, height }) {
   const id2 = `${prefix}-${crypto.randomUUID()}`;
@@ -4447,6 +4490,7 @@ function cptChart(svg, {
   width,
   height,
   margin,
+  gridLeft,
   gridRight
 }) {
   const series = buildSeries({
@@ -4472,7 +4516,7 @@ function cptChart(svg, {
   const xGrid = (g) => g.attr("stroke", "currentColor").attr("stroke-opacity", 0.1).selectAll("line").data(gridXScale ? gridXScale.ticks(width / 100) : []).join("line").attr("x1", (d) => 0.5 + gridXScale(d)).attr("x2", (d) => 0.5 + gridXScale(d)).attr("y1", marginTop).attr("y2", height - marginBottom);
   const yAxis = yAxisFor(margin.left, height);
   const yGrid = yGridFor({
-    x1: margin.left,
+    x1: gridLeft ?? margin.left,
     x2: gridRight ?? width - margin.right,
     height
   });
@@ -4489,12 +4533,12 @@ function cptChart(svg, {
   );
   topSeries.forEach((s, i) => svg.append("g").call(xAxis, s, marginTop - axisSlot * i));
   const gy = svg.append("g").call(yAxis, y2);
-  verticalAxisTitle(svg, vert.label);
-  const seriesPaths = svg.append("g").selectAll("path").data(series, (s) => s.key).join("path").attr("clip-path", `url(#${clipId})`).attr("fill", "none").attr("stroke", (s) => s.color).attr("stroke-width", 1).attr("d", (s) => lineFor(s, vertical, y2));
+  verticalAxisTitle(svg, vert.label, Math.max(14, marginTop - 6));
+  const seriesPaths = svg.append("g").selectAll("path").data(series, (s) => s.key).join("path").attr("clip-path", `url(#${clipId})`).attr("fill", "none").attr("stroke", (s) => s.color).attr("stroke-width", 1).attr("d", (s) => lineFor(s.x, s.values, vertical, y2));
   const place = (y1) => {
     gy.call(yAxis, y1);
     gGrid.call(yGrid, y1);
-    seriesPaths.attr("d", (s) => lineFor(s, vertical, y1));
+    seriesPaths.attr("d", (s) => lineFor(s.x, s.values, vertical, y1));
   };
   return {
     series,
@@ -4503,212 +4547,6 @@ function cptChart(svg, {
     clipId,
     place
   };
-}
-const haloText = (text, strokeWidth = 1.5) => text.style("stroke", "Canvas").attr("stroke-width", strokeWidth).attr("paint-order", "stroke");
-function focusRig(svg, {
-  marginLeft,
-  ruleX2,
-  readoutHost
-}) {
-  const ruleX2Of = typeof ruleX2 === "function" ? ruleX2 : () => ruleX2;
-  const focus = svg.append("g").attr("display", "none").attr("pointer-events", "none");
-  const rule = focus.append("line").attr("x1", marginLeft).attr("x2", ruleX2Of()).attr("stroke", "currentColor").attr("stroke-opacity", 0.3);
-  const readoutGroup = readoutHost ? readoutHost.append("g").attr("display", "none").attr("pointer-events", "none") : focus;
-  const readout = readoutGroup.append("text").attr("x", marginLeft - 8).attr("dy", "0.32em").attr("text-anchor", "end").attr("font-size", 12).attr("font-weight", "bold").attr("fill", "currentColor").call(haloText);
-  const groups = readoutGroup === focus ? [focus] : [focus, readoutGroup];
-  return {
-    focus,
-    readout,
-    show: (ym) => {
-      rule.attr("x2", ruleX2Of());
-      groups.forEach((g) => g.attr("display", null).attr("transform", `translate(0,${ym})`));
-    },
-    hide: () => groups.forEach((g) => g.attr("display", "none"))
-  };
-}
-function dodgeLabels(anchors, separation, extent2) {
-  const placed = Array.from({ length: anchors.length }, () => 0);
-  if (anchors.length === 0) {
-    return placed;
-  }
-  const centerOf = (cluster) => {
-    const mean = cluster.anchorSum / cluster.size;
-    if (!extent2) {
-      return mean;
-    }
-    const halfSpan = (cluster.size - 1) * separation / 2;
-    return Math.max(Math.min(mean, extent2[1] - halfSpan), extent2[0] + halfSpan);
-  };
-  const firstMemberOf = (cluster) => centerOf(cluster) - (cluster.size - 1) * separation / 2;
-  const lastMemberOf = (cluster) => centerOf(cluster) + (cluster.size - 1) * separation / 2;
-  const clusters = [];
-  anchors.forEach((anchor, index) => {
-    clusters.push({ anchorSum: anchor, size: 1, firstIndex: index });
-    while (clusters.length > 1) {
-      const above = clusters[clusters.length - 2];
-      const below = clusters[clusters.length - 1];
-      const gap = firstMemberOf(below) - lastMemberOf(above);
-      if (gap >= separation - 1e-6) {
-        break;
-      }
-      above.anchorSum += below.anchorSum;
-      above.size += below.size;
-      clusters.pop();
-    }
-  });
-  for (const cluster of clusters) {
-    const center2 = centerOf(cluster);
-    for (let member = 0; member < cluster.size; member++) {
-      placed[cluster.firstIndex + member] = center2 + (member - (cluster.size - 1) / 2) * separation;
-    }
-  }
-  return placed;
-}
-const labelMargin = 28;
-const depthLabelHeight = 12;
-const labelGeometry = {
-  left: {
-    textX: labelMargin - 4,
-    anchor: "end",
-    leaderStart: labelMargin,
-    leaderEnd: labelMargin - 3
-  },
-  right: { textX: 4, anchor: "start", leaderStart: 0, leaderEnd: 3 }
-};
-function layerRenderer({
-  columnWidth,
-  classColor,
-  classLabel,
-  hatchId,
-  formatBoundary
-}) {
-  const bandData = (d) => (d.bands ?? []).map((b) => ({ ...b, top: d.top, bottom: d.bottom }));
-  const bandX = (rect) => rect.attr("x", (b) => labelMargin + b.x1 * (columnWidth - labelMargin)).attr("width", (b) => (b.x2 - b.x1) * (columnWidth - labelMargin));
-  return (parent, layers) => {
-    const layerGroup = parent.selectAll("g.layer").data(layers).join((enter) => {
-      const g = enter.append("g").attr("class", "layer");
-      g.append("rect").attr("x", labelMargin).attr("width", columnWidth - labelMargin).style("stroke", "Canvas");
-      g.append("text").attr("class", "soil-label").attr("x", columnWidth / 2 + labelMargin / 2).attr("dy", "0.32em").attr("text-anchor", "middle").attr("font-size", 10).attr("fill", "#333").call(haloText);
-      g.append("title");
-      return g;
-    });
-    layerGroup.select("rect").attr(
-      "fill",
-      (d) => d.bands ? "none" : d.class != null ? classColor(d.class) : d.color ?? "#ccc"
-    );
-    layerGroup.select("text.soil-label").text((d) => d.bands ? "" : d.label ?? classLabel.get(d.class) ?? d.class ?? "");
-    layerGroup.select("title").text((d) => d.bands ? d.label ?? "" : "");
-    layerGroup.selectAll("rect.band").data(bandData).join("rect").attr("class", "band").call(bandX).attr("fill", (b) => b.color).style("stroke", "Canvas").attr("stroke-width", 0.5);
-    layerGroup.selectAll("rect.hatch").data((d) => bandData(d).filter((b) => b.hatch)).join("rect").attr("class", "hatch").call(bandX).attr("fill", (b) => `url(#${hatchId.get(b.hatch)})`);
-    boundaryLabels(
-      parent,
-      (d) => boundaryData(typeof layers === "function" ? layers(d) : layers, formatBoundary)
-    );
-  };
-}
-function boundaryData(layers, format2) {
-  const last = layers[layers.length - 1];
-  return layers.length ? [
-    ...layers.map((l) => ({ layer: l, which: "top", format: format2 })),
-    { layer: last, which: "bottom", format: format2 }
-  ] : [];
-}
-function boundaryLabels(parent, data, side = "left") {
-  const geom = labelGeometry[side];
-  const sel = parent.selectAll("g.boundary");
-  (typeof data === "function" ? sel.data(data) : sel.data(data)).join((enter) => {
-    const g = enter.append("g").attr("class", "boundary");
-    g.append("text").attr("font-size", 10).attr("x", geom.textX).attr("fill", "currentColor").attr("dominant-baseline", "middle").attr("text-anchor", geom.anchor);
-    g.append("path").attr("fill", "none").attr("stroke", "#888").attr("stroke-width", 0.75);
-    return g;
-  });
-}
-function placeLayerColumn(parent, y1) {
-  const layerGroup = parent.selectAll("g.layer");
-  layerGroup.select("rect").attr("y", (d) => Math.min(y1(d.top), y1(d.bottom))).attr("height", (d) => Math.abs(y1(d.bottom) - y1(d.top)));
-  layerGroup.selectAll("rect.band, rect.hatch").attr("y", (d) => Math.min(y1(d.top), y1(d.bottom))).attr("height", (d) => Math.abs(y1(d.bottom) - y1(d.top)));
-  layerGroup.select("text.soil-label").attr("y", (d) => (y1(d.top) + y1(d.bottom)) / 2);
-  parent.each(function() {
-    placeDepthLabels(select(this), y1);
-  });
-}
-function placeDepthLabels(column, y1, side = "left") {
-  const geom = labelGeometry[side];
-  const leaderMidX = (geom.leaderStart + geom.leaderEnd) / 2;
-  const boundarySel = column.selectAll("g.boundary");
-  const nodes = boundarySel.nodes();
-  const data = boundarySel.data();
-  if (!nodes.length) {
-    return;
-  }
-  const [r0, r1] = y1.range();
-  const lo = Math.min(r0, r1);
-  const hi = Math.max(r0, r1);
-  const anchors = data.map((b) => y1(b.layer[b.which]));
-  const visible = [];
-  anchors.forEach((a, i) => {
-    if (a >= lo && a <= hi) {
-      visible.push(i);
-    }
-  });
-  if (visible.length * depthLabelHeight > hi - lo) {
-    boundarySel.attr("display", "none");
-    return;
-  }
-  const placed = dodgeLabels(
-    visible.map((i) => anchors[i]),
-    depthLabelHeight,
-    [lo + depthLabelHeight / 2, hi - depthLabelHeight / 2]
-  );
-  const posByIndex = /* @__PURE__ */ new Map();
-  visible.forEach((bi, j) => posByIndex.set(bi, placed[j]));
-  nodes.forEach((node, i) => {
-    const g = select(node);
-    const p = posByIndex.get(i);
-    if (p === void 0) {
-      g.attr("display", "none");
-      return;
-    }
-    g.attr("display", null);
-    g.select("text").attr("y", p).text(data[i].format(data[i].layer[data[i].which]));
-    const displaced = Math.abs(p - anchors[i]) > 0.5;
-    g.select("path").attr("display", displaced ? null : "none").attr(
-      "d",
-      displaced ? `M${geom.leaderStart},${anchors[i]}C${leaderMidX},${anchors[i]} ${leaderMidX},${p} ${geom.leaderEnd},${p}` : null
-    );
-  });
-}
-function annotationLayer(svg, annotations, { clipId, marginLeft, marginRight, width }) {
-  const currentWidth = typeof width === "function" ? width : () => width;
-  const labelAnchor = { left: "start", center: "middle", right: "end" };
-  const annotation = svg.append("g").attr("clip-path", `url(#${clipId})`).selectAll("g").data(annotations).join("g");
-  const line2 = annotation.append("line").attr("x1", marginLeft).attr("stroke", (d) => d.color ?? "currentColor").attr("stroke-dasharray", (d) => d.dash ?? "4 3");
-  const label = annotation.append("text").attr("y", (d) => -4 + (d.offset?.[1] ?? 0)).attr("text-anchor", (d) => labelAnchor[d.position ?? "right"]).attr("font-size", 11).attr("fill", (d) => d.color ?? "currentColor").call(haloText).text((d) => d.label ?? "");
-  return (y1) => {
-    const w = currentWidth();
-    const labelX = {
-      left: marginLeft + 6,
-      center: (marginLeft + w - marginRight) / 2,
-      right: w - marginRight - 6
-    };
-    line2.attr("x2", w - marginRight);
-    label.attr(
-      "x",
-      (d) => labelX[d.position ?? "right"] + (d.offset?.[0] ?? 0)
-    );
-    annotation.attr("transform", (d) => `translate(0,${y1(d.at)})`);
-  };
-}
-function overlayLayer(svg, overlays, { seriesByKey, clipId }) {
-  const overlayPath = (o, y1) => {
-    const s = seriesByKey.get(o.channel);
-    if (!s) {
-      return null;
-    }
-    return line().defined((p) => p[0] != null && p[1] != null).x((p) => s.x(p[0])).y((p) => y1(p[1]))(o.points ?? []);
-  };
-  const paths = svg.append("g").attr("clip-path", `url(#${clipId})`).selectAll("path").data(overlays).join("path").attr("fill", "none").attr("stroke", (o) => o.color ?? "currentColor").attr("stroke-width", (o) => o.width ?? 1.5).attr("stroke-dasharray", (o) => o.dash ?? "6 4");
-  return (y1) => paths.attr("d", (o) => overlayPath(o, y1));
 }
 function crosshair(svg, {
   series,
@@ -4739,6 +4577,17 @@ function crosshair(svg, {
     readouts.text((s) => s.values[i] == null ? "" : `${s.label} ${formatValue(s.values[i])}`);
   }
   svg.on("pointerenter pointermove", pointermoved).on("pointerleave", rig.hide);
+}
+function overlayLayer(svg, overlays, { seriesByKey, clipId }) {
+  const overlayPath = (o, y1) => {
+    const s = seriesByKey.get(o.channel);
+    if (!s) {
+      return null;
+    }
+    return line().defined((p) => p[0] != null && p[1] != null).x((p) => s.x(p[0])).y((p) => y1(p[1]))(o.points ?? []);
+  };
+  const paths = svg.append("g").attr("clip-path", `url(#${clipId})`).selectAll("path").data(overlays).join("path").attr("fill", "none").attr("stroke", (o) => o.color ?? "currentColor").attr("stroke-width", (o) => o.width ?? 1.5).attr("stroke-dasharray", (o) => o.dash ?? "6 4");
+  return (y1) => paths.attr("d", (o) => overlayPath(o, y1));
 }
 const verticalDefaults = {
   depth: { label: "depth [m]", up: false, format: ".2f" },
@@ -4834,6 +4683,212 @@ function verticalZoom() {
   vz.currentScale = () => zy ?? y2;
   return vz;
 }
+const DEFAULT_WIDTH = 400;
+const DEFAULT_HEIGHT = 800;
+function readCore(model) {
+  const cptData = model.get("cptData");
+  const vert = resolveVertical(model.get("verticalKey"), "depth");
+  return {
+    cptData,
+    vert,
+    vertical: cptData[vert.key] ?? [],
+    formatVertical: format(vert.format),
+    axisLimits: model.get("axisLimits") ?? {},
+    annotations: model.get("annotations") ?? [],
+    overlays: model.get("overlays") ?? [],
+    channels: model.get("channels") ?? [],
+    width: model.get("width") || DEFAULT_WIDTH,
+    height: model.get("height") || DEFAULT_HEIGHT
+  };
+}
+function renderCore(svg, core, {
+  margin,
+  gridLeft,
+  gridRight
+}) {
+  const { series, seriesByKey, y: y2, clipId, place } = cptChart(svg, {
+    cptData: core.cptData,
+    vertical: core.vertical,
+    vert: core.vert,
+    channels: core.channels,
+    axisLimits: core.axisLimits,
+    width: core.width,
+    height: core.height,
+    margin,
+    gridLeft,
+    gridRight
+  });
+  const [plotTop, plotBottom] = y2.range();
+  const vz = verticalZoom().scale(y2).xExtent([margin.left, core.width - margin.right]);
+  const placeOverlays = overlayLayer(svg, core.overlays, { seriesByKey, clipId });
+  const placeAnnotations = annotationLayer(svg, core.annotations, {
+    clipId,
+    marginLeft: margin.left,
+    marginRight: margin.right,
+    width: core.width
+  });
+  crosshair(svg, {
+    series,
+    vertical: core.vertical,
+    formatVertical: core.formatVertical,
+    marginLeft: margin.left,
+    marginRight: margin.right,
+    width: core.width,
+    currentY: vz.currentScale
+  });
+  return { vz, plotTop, plotBottom, placers: [place, placeOverlays, placeAnnotations] };
+}
+function wrapLines(text, maxChars) {
+  const words = text.split(/\s+/).filter(Boolean);
+  const lines = [];
+  let line2 = "";
+  for (const word of words) {
+    const candidate = line2 ? `${line2} ${word}` : word;
+    if (candidate.length > maxChars && line2) {
+      lines.push(line2);
+      line2 = word;
+    } else {
+      line2 = candidate;
+    }
+  }
+  if (line2) {
+    lines.push(line2);
+  }
+  return lines;
+}
+const labelMargin = 28;
+const depthLabelHeight = 12;
+const soilLabelFontSize = 10;
+const soilLineHeight = 11;
+const labelGeometry = {
+  left: { textX: labelMargin - 4, anchor: "end" },
+  right: { textX: 4, anchor: "start" }
+};
+function layerRenderer({
+  columnWidth,
+  classColor,
+  classLabel,
+  hatchId,
+  formatBoundary
+}) {
+  const bandData = (d) => (d.bands ?? []).map((b) => ({ ...b, top: d.top, bottom: d.bottom }));
+  const bandX = (rect) => rect.attr("x", (b) => labelMargin + b.x1 * (columnWidth - labelMargin)).attr("width", (b) => (b.x2 - b.x1) * (columnWidth - labelMargin));
+  const labelMaxChars = Math.max(
+    1,
+    Math.floor((columnWidth - labelMargin - 4) / (soilLabelFontSize * 0.5))
+  );
+  const labelCenterX = columnWidth / 2 + labelMargin / 2;
+  return (parent, layers) => {
+    const layerGroup = parent.selectAll("g.layer").data(layers).join((enter) => {
+      const g = enter.append("g").attr("class", "layer");
+      g.append("rect").attr("x", labelMargin).attr("width", columnWidth - labelMargin).style("stroke", "Canvas");
+      g.append("text").attr("class", "soil-label").attr("text-anchor", "middle").attr("dominant-baseline", "middle").attr("font-size", soilLabelFontSize).attr("fill", "#333").call(haloText);
+      g.append("title");
+      return g;
+    });
+    layerGroup.select("rect").attr(
+      "fill",
+      (d) => d.bands ? "none" : d.class != null ? classColor(d.class) : d.color ?? "#ccc"
+    );
+    layerGroup.select("text.soil-label").each(function(d) {
+      const label = d.label ?? classLabel.get(d.class) ?? d.class ?? "";
+      select(this).selectAll("tspan").data(wrapLines(label, labelMaxChars)).join("tspan").attr("x", labelCenterX).text((line2) => line2);
+    });
+    layerGroup.select("title").text((d) => d.bands ? d.label ?? "" : "");
+    layerGroup.selectAll("rect.band").data(bandData).join("rect").attr("class", "band").call(bandX).attr("fill", (b) => b.color).style("stroke", "Canvas").attr("stroke-width", 0.5);
+    layerGroup.selectAll("rect.hatch").data((d) => bandData(d).filter((b) => b.hatch)).join("rect").attr("class", "hatch").call(bandX).attr("fill", (b) => `url(#${hatchId.get(b.hatch)})`);
+    layerGroup.select("text.soil-label").raise();
+    boundaryLabels(
+      parent,
+      (d) => boundaryData(typeof layers === "function" ? layers(d) : layers, formatBoundary)
+    );
+  };
+}
+function boundaryData(layers, format2) {
+  const last = layers[layers.length - 1];
+  return layers.length ? [
+    ...layers.map((l) => ({ layer: l, which: "top", format: format2 })),
+    { layer: last, which: "bottom", format: format2 }
+  ] : [];
+}
+function boundaryLabels(parent, data, side = "left") {
+  const geom = labelGeometry[side];
+  const sel = parent.selectAll("g.boundary");
+  (typeof data === "function" ? sel.data(data) : sel.data(data)).join((enter) => {
+    const g = enter.append("g").attr("class", "boundary");
+    g.append("text").attr("font-size", 10).attr("x", geom.textX).attr("fill", "currentColor").attr("dominant-baseline", "middle").attr("text-anchor", geom.anchor);
+    return g;
+  });
+}
+function placeLayerColumn(parent, y1) {
+  const layerGroup = parent.selectAll("g.layer");
+  layerGroup.select("rect").attr("y", (d) => Math.min(y1(d.top), y1(d.bottom))).attr("height", (d) => Math.abs(y1(d.bottom) - y1(d.top)));
+  layerGroup.selectAll("rect.band, rect.hatch").attr("y", (d) => Math.min(y1(d.top), y1(d.bottom))).attr("height", (d) => Math.abs(y1(d.bottom) - y1(d.top)));
+  layerGroup.select("text.soil-label").each(function(d) {
+    const label = select(this);
+    const tspans = label.selectAll("tspan");
+    const lines = tspans.size();
+    const blockHeight = lines * soilLineHeight;
+    const layerHeight = Math.abs(y1(d.bottom) - y1(d.top));
+    if (lines === 0 || blockHeight > layerHeight) {
+      label.attr("display", "none");
+      return;
+    }
+    label.attr("display", null);
+    const mid = (y1(d.top) + y1(d.bottom)) / 2;
+    tspans.attr("y", (_, i) => mid + (i - (lines - 1) / 2) * soilLineHeight);
+  });
+  parent.each(function() {
+    placeDepthLabels(select(this), y1);
+  });
+}
+function placeDepthLabels(column, y1) {
+  const boundarySel = column.selectAll("g.boundary");
+  const nodes = boundarySel.nodes();
+  const data = boundarySel.data();
+  if (!nodes.length) {
+    return;
+  }
+  const [r0, r1] = y1.range();
+  const lo = Math.min(r0, r1);
+  const hi = Math.max(r0, r1);
+  const anchors = data.map((b) => y1(b.layer[b.which]));
+  const visible = [];
+  anchors.forEach((a, i) => {
+    if (a >= lo && a <= hi) {
+      visible.push(i);
+    }
+  });
+  const half = depthLabelHeight / 2;
+  const posOf = (i) => Math.max(lo + half, Math.min(hi - half, anchors[i]));
+  const pxThick = (l) => Math.abs(y1(l.bottom) - y1(l.top));
+  const weightOf = (i) => i === 0 || i === data.length - 1 ? Infinity : Math.max(pxThick(data[i - 1].layer), pxThick(data[i].layer));
+  const order = [...visible].sort((a, b) => weightOf(b) - weightOf(a) || a - b);
+  const kept = /* @__PURE__ */ new Map();
+  for (const i of order) {
+    const p = posOf(i);
+    let clears = true;
+    for (const q of kept.values()) {
+      if (Math.abs(p - q) < depthLabelHeight) {
+        clears = false;
+        break;
+      }
+    }
+    if (clears) {
+      kept.set(i, p);
+    }
+  }
+  nodes.forEach((node, i) => {
+    const g = select(node);
+    const p = kept.get(i);
+    if (p === void 0) {
+      g.attr("display", "none");
+      return;
+    }
+    g.attr("display", null);
+    g.select("text").attr("y", p).text(data[i].format(data[i].layer[data[i].which]));
+  });
+}
 const snapPx = 6;
 function laneTarget(layers, y1, py, snap = snapPx) {
   let best = snap;
@@ -4859,6 +4914,9 @@ const clampWindow = (a, b) => [
 ];
 function seedLayer(top2, bottom2) {
   return [{ top: top2, bottom: bottom2 }];
+}
+function seedFrom(source) {
+  return source.map((l) => ({ ...l }));
 }
 function dragBoundary(layers, i, value) {
   const above = layers[i];
@@ -5067,9 +5125,12 @@ function editableColumn({
     (enter) => enter.append("rect").attr("class", "handle").attr("x", 0).attr("width", columnWidth).attr("height", 9).attr("fill", "transparent").attr("cursor", "ns-resize").call(dragHandler)
   );
   const laneX = columnWidth + laneGap;
-  const laneHit = laneG.append("rect").attr("x", laneX).attr("y", plotTop).attr("width", laneWidth).attr("height", plotBottom - plotTop).attr("fill", "currentColor").attr("fill-opacity", 0.05).attr("stroke", "currentColor").attr("stroke-opacity", 0.25).attr("cursor", "pointer");
+  const laneHit = laneG.append("rect").attr("x", laneX).attr("y", plotTop).attr("width", laneWidth).attr("height", plotBottom - plotTop).attr("fill", "currentColor").attr("fill-opacity", 0.07).attr("stroke", "currentColor").attr("stroke-opacity", 0.3).attr("cursor", "pointer");
+  laneHit.append("title").text("Click to split a layer here; click near a boundary to merge");
   const laneLine = laneG.append("line").attr("x1", labelMargin).attr("x2", laneX + laneWidth).attr("stroke-width", 1.5).attr("pointer-events", "none").attr("display", "none");
   const laneGlyph = laneG.append("text").attr("x", laneX + laneWidth / 2).attr("text-anchor", "middle").attr("dy", "0.32em").attr("font-size", 12).attr("font-weight", "bold").attr("pointer-events", "none").attr("display", "none");
+  const laneIdle = laneG.append("text").attr("x", laneX + laneWidth / 2).attr("y", (plotTop + plotBottom) / 2).attr("text-anchor", "middle").attr("dy", "0.32em").attr("font-size", 12).attr("font-weight", "bold").attr("fill", "currentColor").attr("fill-opacity", 0.35).attr("pointer-events", "none").text("+");
+  const showLaneIdle = (show) => laneIdle.attr("display", show && layers.length ? null : "none");
   const hideLanePreview = () => {
     laneLine.attr("display", "none");
     laneGlyph.attr("display", "none");
@@ -5085,7 +5146,14 @@ function editableColumn({
     laneLine.attr("display", null).attr("y1", target.at).attr("y2", target.at).attr("stroke", color2).attr("stroke-dasharray", merging ? null : "4,3");
     laneGlyph.attr("display", null).attr("y", target.at).attr("fill", color2).text(merging ? "×" : "+");
   };
-  laneHit.on("pointermove", (event) => previewLane(pointer(event)[1])).on("pointerleave", hideLanePreview).on("dblclick", (event) => event.stopPropagation()).on("click", (event) => {
+  laneHit.on("pointerenter", () => {
+    showLaneIdle(false);
+    laneHit.attr("fill-opacity", 0.12);
+  }).on("pointermove", (event) => previewLane(pointer(event)[1])).on("pointerleave", () => {
+    hideLanePreview();
+    laneHit.attr("fill-opacity", 0.07);
+    showLaneIdle(true);
+  }).on("dblclick", (event) => event.stopPropagation()).on("click", (event) => {
     closePalette();
     const py = pointer(event)[1];
     const target = laneTarget(layers, currentY(), py);
@@ -5229,13 +5297,19 @@ function editableColumn({
     layersG.call(layerColumn, layers).call(classifyLayers);
     handlesG.call(boundaryHandles);
     emptyHint.attr("display", layers.length ? "none" : null);
+    showLaneIdle(true);
   };
   const updateEditColumn = () => {
     joinEditColumn();
     placeEditColumn(currentY());
   };
+  const seedFrom$1 = (source) => {
+    layers = seedFrom(source);
+    updateEditColumn();
+    syncEditedLayers();
+  };
   joinEditColumn();
-  return placeHandles;
+  return { place: placeHandles, seedFrom: seedFrom$1 };
 }
 function layoutColumns(columns, width, column) {
   const slotWidth = column.width + column.gap;
@@ -5268,13 +5342,8 @@ const cptViewer = {
       once: true
     });
     const signal = controller.signal;
-    const cptData = model.get("cptData");
-    const vert = resolveVertical(model.get("verticalKey"), "depth");
-    const vertical = cptData[vert.key] ?? [];
-    const formatVertical = format(vert.format);
-    const axisLimits = model.get("axisLimits") ?? {};
-    const annotations = model.get("annotations") ?? [];
-    const channels = model.get("channels") ?? [];
+    const core = readCore(model);
+    const { vertical, formatVertical, width, height } = core;
     const interpretations = model.get("interpretations") ?? [];
     const borehole = model.get("borehole") ?? {};
     const boreholeLayers = borehole.layers ?? [];
@@ -5289,16 +5358,12 @@ const cptViewer = {
     const editedLayers = (model.get("editedLayers") ?? []).map((l) => ({
       ...l
     }));
-    const width = model.get("width") || 400;
-    const height = model.get("height") || 800;
     const margin = {
       left: 70,
       right: 50,
       top: 10,
       bottom: 10
     };
-    const marginLeft = margin.left;
-    const marginRight = margin.right;
     const column = { width: 72, gap: 8 };
     const columns = [
       ...boreholeLayers.length ? [
@@ -5324,33 +5389,28 @@ const cptViewer = {
       }
     ];
     const { totalWidth, x0 } = layoutColumns(columns, width, column);
+    const leftColumns = columns.filter((c) => c.side === "left");
+    const gridLeft = leftColumns.length ? Math.min(...leftColumns.map((c) => c.x ?? 0)) : void 0;
     const svgRight = totalWidth + laneExtent;
-    const svg = select(el).append("svg").attr("viewBox", [x0, 0, svgRight - x0, height].join(",")).attr("width", svgRight - x0).attr("height", height).style("max-width", "100%").style("height", "auto").style("user-select", "none").style("-webkit-user-select", "none");
-    const { series, seriesByKey, y: y2, clipId, place } = cptChart(svg, {
-      cptData,
-      vertical,
-      vert,
-      channels,
-      axisLimits,
-      width,
-      height,
+    const headerFontSize = 12;
+    const longestHeaderPx = Math.max(0, ...columns.map((c) => c.label.length)) * headerFontSize * 0.6;
+    const headerRise = Math.ceil(longestHeaderPx * Math.SQRT1_2) + headerFontSize;
+    margin.top = Math.max(margin.top, headerRise);
+    const rightReserve = headerRise;
+    const svg = select(el).append("svg").attr(
+      "viewBox",
+      [x0, 0, svgRight - x0 + rightReserve, height].join(",")
+    ).attr("width", svgRight - x0 + rightReserve).attr("height", height).style("max-width", "100%").style("height", "auto").style("user-select", "none").style("-webkit-user-select", "none");
+    const { vz, plotTop, plotBottom, placers } = renderCore(svg, core, {
       margin,
-      // gridlines reach across the layer columns
+      // gridlines reach across the layer columns, both sides
+      gridLeft,
       gridRight: totalWidth
     });
-    const [plotTop, plotBottom] = y2.range();
-    const vz = verticalZoom().scale(y2).xExtent([marginLeft, width - marginRight]);
-    const placeOverlays = overlayLayer(svg, model.get("overlays") ?? [], {
-      seriesByKey,
-      clipId
-    });
-    const placeAnnotations = annotationLayer(svg, annotations, {
-      clipId,
-      marginLeft,
-      marginRight,
-      width
-    });
-    const columnHeader = (g, label) => g.append("text").attr("x", column.width / 2).attr("y", plotTop - 8).attr("text-anchor", "middle").attr("font-size", 12).attr("font-weight", "bold").attr("fill", "currentColor").text(label);
+    const columnHeader = (g, label) => g.append("text").attr("class", "column-header").attr(
+      "transform",
+      `translate(${column.width / 2},${plotTop - 6}) rotate(-45)`
+    ).attr("text-anchor", "start").attr("dominant-baseline", "middle").attr("font-size", headerFontSize).attr("font-weight", "bold").attr("fill", "currentColor").text(label);
     const columnClipId = plotClip(svg, "column-clip", {
       x: -8,
       y: plotTop,
@@ -5363,7 +5423,7 @@ const cptViewer = {
           (c) => c.layers.flatMap((l) => (l.bands ?? []).map((b) => b.hatch))
         )
       )
-    ].filter(Boolean);
+    ].filter((d) => Boolean(d));
     const hatchId = hatchDefs(svg, usedHatches);
     const layerColumn = layerRenderer({
       columnWidth: column.width,
@@ -5375,13 +5435,10 @@ const cptViewer = {
     const gColumn = svg.selectAll("g.column").data(columns).join("g").attr("class", "column").attr("transform", (d) => `translate(${d.x},0)`).call(columnHeader, (d) => d.label);
     const columnBody = gColumn.append("g").attr("clip-path", `url(#${columnClipId})`);
     const columnLayers = columnBody.append("g").call(layerColumn, (d) => d.layers);
-    const columnPlacers = [
-      (y1) => placeLayerColumn(columnLayers, y1)
-    ];
     const layersG = columnLayers.filter((d) => Boolean(d.editable));
     const handlesG = columnBody.filter((d) => Boolean(d.editable)).append("g");
     const laneG = gColumn.filter((d) => Boolean(d.editable)).append("g");
-    const placeHandles = editableColumn({
+    const editColumn = editableColumn({
       model,
       el,
       signal,
@@ -5400,22 +5457,15 @@ const cptViewer = {
       layerColumn,
       currentY: vz.currentScale
     });
-    columnPlacers.push(placeHandles);
+    gColumn.filter((d) => !d.side && !d.editable).select("text.column-header").classed("seedable", true).on("dblclick", (event, d) => {
+      event.stopPropagation();
+      editColumn.seedFrom(d.layers);
+    }).append("title").text("Double-click to seed the editable column from this interpretation");
     const placeColumns = (y1) => {
-      columnPlacers.forEach((place2) => place2(y1));
+      placeLayerColumn(columnLayers, y1);
+      editColumn.place(y1);
     };
-    crosshair(svg, {
-      series,
-      vertical,
-      formatVertical,
-      marginLeft,
-      marginRight,
-      width,
-      currentY: vz.currentScale
-    });
-    svg.call(
-      vz.placers([place, placeOverlays, placeAnnotations, placeColumns])
-    );
+    svg.call(vz.placers([...placers, placeColumns]));
     return () => controller.abort();
   }
 };

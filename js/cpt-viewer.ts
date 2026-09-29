@@ -1,14 +1,9 @@
 import type { AnyModel, RenderProps } from "@anywidget/types";
 import * as d3 from "./lib/d3";
 import { hatchDefs } from "./lib/hatch";
-import { cptChart } from "./lib/cpt-chart";
+import { readCore, renderCore } from "./lib/cpt-core";
 import { layerRenderer, placeLayerColumn } from "./lib/layers";
-import { annotationLayer } from "./lib/annotations";
-import { overlayLayer } from "./lib/overlays";
-import { crosshair } from "./lib/crosshair";
 import { plotClip } from "./lib/frame";
-import { resolveVertical } from "./lib/vertical";
-import { verticalZoom } from "./lib/zoom";
 import { editableColumn, laneExtent } from "./lib/editing";
 import type {
   Annotation,
@@ -16,6 +11,8 @@ import type {
   AxisLimits,
   Borehole,
   ChannelSpec,
+  ColumnGeometry,
+  ColumnSpec,
   CptData,
   Interpretation,
   Layer,
@@ -41,22 +38,6 @@ interface CptModel {
   height: number;
 }
 
-/** one layer column in the slot layout left/right of the plot */
-export interface ColumnSpec {
-  label: string;
-  layers: Layer[];
-  side?: "left";
-  editable?: boolean;
-  gapBefore?: boolean;
-  x?: number;
-}
-
-/** column slot geometry: the fixed slot width and the gap between slots */
-export interface ColumnGeometry {
-  width: number;
-  gap: number;
-}
-
 export default {
   /** @param context the model shared by every view of this widget */
   initialize(_context: { model: AnyModel<CptModel>; signal: AbortSignal }) {
@@ -73,31 +54,13 @@ export default {
     });
     const signal = controller.signal;
 
-    const cptData = model.get("cptData");
-
-    // which cptData column is the vertical coordinate: a key string or a
-    // {key, label?, up?, format?} spec merged over the display defaults
-    // for "depth" and "nap". The contract is that the first sample
-    // renders at the top — the Python facade sorts rows into that order
-    // (data passed raw via cptData= must arrive sorted)
-    const vert = resolveVertical(model.get("verticalKey"), "depth");
-    const vertical = cptData[vert.key] ?? [];
-
-    // one compiled formatter for every reading of the vertical
-    // coordinate: crosshair readout and layer boundary labels
-    const formatVertical = d3.format(vert.format);
-
-    // optional per-channel [min, max] overrides, keyed like cptData
-    // (plus "depth" for the shared depth axis)
-    const axisLimits = model.get("axisLimits") ?? {};
-
-    /** horizontal reference lines with labels, e.g. groundwater level */
-    const annotations = model.get("annotations") ?? [];
-
-    // which channels to plot, in stacking order — key strings or specs,
-    // resolved against the built-in defaults in buildSeries so unknown
-    // keys add new plottable channels; empty = all default channels
-    const channels = model.get("channels") ?? [];
+    // the shared chart spine — cptData, the resolved vertical + its
+    // formatter, axis limits, annotations, overlays, channels, size —
+    // read exactly as the standalone CPTLog reads them (renderCore draws
+    // it below). vertical/formatVertical are also used by this widget's
+    // columns, so pull them out
+    const core = readCore(model);
+    const { vertical, formatVertical, width, height } = core;
 
     // read-only interpretation columns, stacked right of the plot
     const interpretations = model.get("interpretations") ?? [];
@@ -133,9 +96,6 @@ export default {
       ...l,
     }));
 
-    const width = model.get("width") || 400;
-    const height = model.get("height") || 800;
-
     // should this be configurable too?
     const margin = {
       left: 70,
@@ -143,8 +103,6 @@ export default {
       top: 10,
       bottom: 10,
     };
-    const marginLeft = margin.left;
-    const marginRight = margin.right;
 
     // layer columns (interpretations + edit column) extend the svg beyond
     // the plot width
@@ -182,15 +140,42 @@ export default {
 
     const { totalWidth, x0 } = layoutColumns(columns, width, column);
 
+    // horizontal gridlines span every layer column: right to the last
+    // column's edge, and — when a borehole sits left of the plot — left
+    // to its outer edge too, so both sides read against the same ticks
+    const leftColumns = columns.filter((c) => c.side === "left");
+    const gridLeft = leftColumns.length
+      ? Math.min(...leftColumns.map((c) => c.x ?? 0))
+      : undefined;
+
     // the edit column carries the structure lane on its outer edge,
     // past the slot layout's extent
     const svgRight = totalWidth + laneExtent;
 
+    // interpretation headers can be long (e.g. "Bro Interpretation") and,
+    // rendered horizontally, overflow their 72px column into the next.
+    // Angling them 45° up and to the right fans them into parallel
+    // diagonals — the 80px column pitch keeps them clear at any length.
+    // Reserve room for the angled run: a bold 12px glyph is ~0.6em wide,
+    // and the 45° rotation turns the run length into an equal rise above
+    // the plot (grown into the top margin) and a rightward drift past the
+    // last column (grown onto the right of the viewBox)
+    const headerFontSize = 12;
+    const longestHeaderPx =
+      Math.max(0, ...columns.map((c) => c.label.length)) * headerFontSize * 0.6;
+    const headerRise =
+      Math.ceil(longestHeaderPx * Math.SQRT1_2) + headerFontSize;
+    margin.top = Math.max(margin.top, headerRise);
+    const rightReserve = headerRise;
+
     const svg = d3
       .select(el)
       .append("svg")
-      .attr("viewBox", [x0, 0, svgRight - x0, height].join(","))
-      .attr("width", svgRight - x0)
+      .attr(
+        "viewBox",
+        [x0, 0, svgRight - x0 + rightReserve, height].join(","),
+      )
+      .attr("width", svgRight - x0 + rightReserve)
       .attr("height", height)
       .style("max-width", "100%")
       .style("height", "auto")
@@ -198,42 +183,15 @@ export default {
       .style("user-select", "none")
       .style("-webkit-user-select", "none"); // still required in Safari
 
-    // the chart core: curves, stacked x axes, grids, the vertical axis.
-    // place() redraws the chart's parts in the zoom loop alongside the
-    // widget's own placers
-    const { series, seriesByKey, y, clipId, place } = cptChart(svg, {
-      cptData,
-      vertical,
-      vert,
-      channels,
-      axisLimits,
-      width,
-      height,
+    // the shared chart spine: curves, stacked x axes, grids, the vertical
+    // axis, plus overlays, annotations and the hover crosshair. Returns
+    // the zoom drive, the plot's vertical extent, and the base placers
+    // this widget appends its column placer to
+    const { vz, plotTop, plotBottom, placers } = renderCore(svg, core, {
       margin,
-      // gridlines reach across the layer columns
+      // gridlines reach across the layer columns, both sides
+      gridLeft,
       gridRight: totalWidth,
-    });
-
-    // the plot's vertical extent is the scale's range — the margins the
-    // chart grew for its stacked x axes are already inside it
-    const [plotTop, plotBottom] = y.range();
-
-    // the zoom drive; applied at the end of setup, but currentScale is
-    // valid already — the handlers built below take it directly
-    const vz = verticalZoom()
-      .scale(y)
-      .xExtent([marginLeft, width - marginRight]);
-
-    const placeOverlays = overlayLayer(svg, model.get("overlays") ?? [], {
-      seriesByKey,
-      clipId,
-    });
-
-    const placeAnnotations = annotationLayer(svg, annotations, {
-      clipId,
-      marginLeft,
-      marginRight,
-      width,
     });
 
     // headers sit above the clip region so they don't scroll with zoom;
@@ -244,10 +202,14 @@ export default {
     ) =>
       g
         .append("text")
-        .attr("x", column.width / 2)
-        .attr("y", plotTop - 8)
-        .attr("text-anchor", "middle")
-        .attr("font-size", 12)
+        .attr("class", "column-header")
+        .attr(
+          "transform",
+          `translate(${column.width / 2},${plotTop - 6}) rotate(-45)`,
+        )
+        .attr("text-anchor", "start")
+        .attr("dominant-baseline", "middle")
+        .attr("font-size", headerFontSize)
         .attr("font-weight", "bold")
         .attr("fill", "currentColor")
         .text(label);
@@ -269,7 +231,7 @@ export default {
           c.layers.flatMap((l) => (l.bands ?? []).map((b) => b.hatch)),
         ),
       ),
-    ].filter(Boolean) as string[];
+    ].filter((d): d is string => Boolean(d));
 
     const hatchId = hatchDefs(svg, usedHatches);
 
@@ -300,11 +262,6 @@ export default {
       .append("g")
       .call(layerColumn, (d: ColumnSpec) => d.layers);
 
-    const columnPlacers = [
-      (y1: d3.ScaleLinear<number, number>) =>
-        placeLayerColumn(columnLayers, y1),
-    ];
-
     // the editable column already exists in the columns join — pick its
     // nodes out by datum. Handles go in a sibling group of the layers so
     // re-joined layer rects can never paint over the handles and steal
@@ -316,7 +273,7 @@ export default {
     // previews live in the lane's own x band and span the plot height
     const laneG = gColumn.filter((d) => Boolean(d.editable)).append("g");
 
-    const placeHandles = editableColumn({
+    const editColumn = editableColumn({
       model,
       el,
       signal,
@@ -336,27 +293,35 @@ export default {
       currentY: vz.currentScale,
     });
 
-    columnPlacers.push(placeHandles);
+    // double-click a read-only interpretation's header to seed the edit
+    // column from it — a full re-seed, discarding current edits (no undo,
+    // so it's a deliberate double-click, and stopPropagation keeps it off
+    // the svg's double-click zoom reset). The .seedable hover style hints
+    // the header is actionable
+    gColumn
+      .filter((d) => !d.side && !d.editable)
+      .select<SVGTextElement>("text.column-header")
+      .classed("seedable", true)
+      .on("dblclick", (event: MouseEvent, d) => {
+        event.stopPropagation();
+        editColumn.seedFrom(d.layers);
+      })
+      // native tooltip spelling out the gesture — the hover underline hints
+      // it's actionable, the title says what the action is
+      .append("title")
+      .text("Double-click to seed the editable column from this interpretation");
 
+    // layer rects for every column plus the edit column's drag handles,
+    // together on each zoom frame
     const placeColumns = (y1: d3.ScaleLinear<number, number>) => {
-      columnPlacers.forEach((place) => place(y1));
+      placeLayerColumn(columnLayers, y1);
+      editColumn.place(y1);
     };
 
-    crosshair(svg, {
-      series,
-      vertical,
-      formatVertical,
-      marginLeft,
-      marginRight,
-      width,
-      currentY: vz.currentScale,
-    });
-
     // apply the zoom drive: it runs the initial placement pass, re-places
-    // on every zoom, and its brush overlay re-raises itself on hover
-    svg.call(
-      vz.placers([place, placeOverlays, placeAnnotations, placeColumns]),
-    );
+    // on every zoom, and its brush overlay re-raises itself on hover. The
+    // widget's column placer runs after the shared base placers
+    svg.call(vz.placers([...placers, placeColumns]));
 
     return () => controller.abort();
   },

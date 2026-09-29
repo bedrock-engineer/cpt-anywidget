@@ -6,6 +6,7 @@ import pytest
 from cpt_anywidget import (
     BoreholeViewer,
     Channel,
+    CPTLog,
     CPTViewer,
     ProfileViewer,
     Vertical,
@@ -74,6 +75,20 @@ def test_raw_traits_pass_through_untouched():
     v = CPTViewer(annotations=[{"at": 1.0, "label": "gw"}], width=500)
     assert v.annotations == [{"at": 1.0, "label": "gw"}]
     assert v.width == 500
+
+
+def test_cpt_log_shares_the_cpt_viewer_facade():
+    # CPTLog runs the same intake seam as CPTViewer: data tidies into
+    # render order, channels normalize, the vertical orients its limits
+    v = CPTLog(
+        DATA,
+        channels=[Channel("qc", unit="MPa"), "u1"],
+        limits={"depth": (10.0, 0.0)},
+    )
+    assert v.cptData == {"depth": [0.0, 1.0], "coneResistance": [1.0, 2.0]}
+    assert v.channels == [{"key": "qc", "unit": "MPa"}, "u1"]
+    assert v.verticalKey == "depth"
+    assert v.axisLimits == {"depth": [0.0, 10.0]}
 
 
 def test_profile_strips_sort_by_chainage_and_tidy_per_group():
