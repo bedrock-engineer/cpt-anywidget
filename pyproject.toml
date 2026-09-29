@@ -56,6 +56,12 @@ dev = [
 jupyter = [
     "jupyterlab>=4.6.2",
 ]
+# the pytest suite touches only the package (anywidget) + pytest; kept apart
+# from dev so CI can run it without resolving the heavy notebook toolchain
+# (d-geolib-plus's git pin ships metadata uv's PEP 440 parser rejects)
+test = [
+    "pytest>=8",
+]
 
 # uv installs this repo as a path dependency in sandboxed notebooks and
 # caches the built wheel; without these keys a JS rebuild (which only

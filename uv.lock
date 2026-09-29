@@ -949,6 +949,9 @@ dev = [
 jupyter = [
     { name = "jupyterlab" },
 ]
+test = [
+    { name = "pytest" },
+]
 
 [package.metadata]
 requires-dist = [{ name = "anywidget", specifier = ">=0.9" }]
@@ -968,6 +971,7 @@ dev = [
     { name = "python-ags4", specifier = ">=1.2.0" },
 ]
 jupyter = [{ name = "jupyterlab", specifier = ">=4.6.2" }]
+test = [{ name = "pytest", specifier = ">=8" }]
 
 [[package]]
 name = "cycler"

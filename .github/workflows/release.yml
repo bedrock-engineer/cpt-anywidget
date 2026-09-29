@@ -32,7 +32,9 @@ jobs:
       # wheel never ships stale JS regardless of what was committed
       - run: npm run build
 
-      - run: uv run pytest
+      # only the minimal test group + the package itself; the full dev group
+      # pulls a git dependency whose wheel metadata uv can't parse
+      - run: uv run --no-default-groups --group test pytest
 
       - run: uv build
 
