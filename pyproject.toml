@@ -88,7 +88,7 @@ packages = ["src/cpt_anywidget"]
 [tool.hatch.build.targets.sdist]
 exclude = [
     "/.claude",
-    "/CLAUDE.md",
+    "/AGENTS.md",
     "/CONTEXT.md",
     "/DEMO_IDEA.md",
     "/TODO.md",
